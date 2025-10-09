@@ -53,3 +53,6 @@ Thumbs.db
 .claude/
 *.md
 !README.md
+
+CLAUDE.md
+GEMINI.md

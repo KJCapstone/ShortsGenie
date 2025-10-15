@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QFileDialog, QFrame, QMessageBox
 )
 from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtGui import QFont, QPainter, QPen, QColor
+from PySide6.QtGui import QFont, QPainter, QPen, QColor, QDragEnterEvent, QDropEvent
 
 
 # Constants for styling and configuration
@@ -32,12 +32,61 @@ EDITING_OPTIONS = ["⚽ 골 모음 영상", "⚡ 경기 주요 영상", "🎵 �
 class DashedFrame(QFrame):
     """Custom QFrame with dashed border."""
     
+    # Signal: emitted when a file is dropped with its path
+    file_dropped = Signal(str)
+
     def __init__(self, parent: QWidget = None) -> None:
         """Initialize the dashed frame."""
+
         super().__init__(parent)
+        self.setAcceptDrops(True)
+        self._is_dragging = False
+        
+    
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        """Handle drag enter event."""
+
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            self._is_dragging = True
+            self.update()
+        else:
+            event.ignore()
+    
+    def dragLeaveEvent(self, event) -> None:
+        """Handle drag leave event."""
+
+        self._is_dragging = False
+        self.update()
+            
+    def dropEvent(self, event: QDropEvent) -> None:
+        """Handle file drop event."""
+
+        self._is_dragging = False
+        self.update()
+        
+        files = [url.toLocalFile() for url in event.mimeData().urls()]
+
+        # Video file extensions list
+        video_extensions = ('.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv')
+        
+        # Find first video file
+        for file_path in files:
+            if file_path.lower().endswith(video_extensions):
+                self.file_dropped.emit(file_path)
+                event.acceptProposedAction()
+                return
+        
+        event.ignore()
         
     def paintEvent(self, event) -> None:
         """Paint the dashed border."""
+        
+        if self._is_dragging:
+            painter_bg = QPainter(self)
+            painter_bg.setRenderHint(QPainter.Antialiasing)
+            painter_bg.fillRect(self.rect(), QColor("#F0F0FF"))
+        
         super().paintEvent(event)
         
         # Set up painter
@@ -186,6 +235,9 @@ class MainPage(QWidget):
                 border-radius: 10px;
             }}
         """)
+
+        # Connect drag and drop signals
+        frame.file_dropped.connect(self.on_file_dropped)
         
         inner_layout = QVBoxLayout(frame)
         inner_layout.setContentsMargins(90, 50, 90, 50)
@@ -337,6 +389,12 @@ class MainPage(QWidget):
         if file_path:
             self.file_path_edit.setText(file_path)
     
+    @Slot(str)
+    def on_file_dropped(self, file_path: str) -> None:
+        """Handle file selection via drag and drop."""
+
+        self.file_path_edit.setText(file_path)
+
     @Slot(object)
     def on_option_clicked(self, clicked_button: QPushButton) -> None:
         """Handle option button click."""

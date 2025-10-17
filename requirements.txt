@@ -28,3 +28,7 @@ ffmpeg-python==0.2.0
 
 tqdm==4.67.1            # Progress bars
 python-dotenv==1.1.1   # Environment variable management
+
+ultralytics
+opencv-python
+numpy

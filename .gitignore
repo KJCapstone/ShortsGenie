@@ -57,6 +57,7 @@ Thumbs.db
 CLAUDE.md
 GEMINI.md
 
+input/
 # === Videos (do not commit) ===
 *.mp4
 *.mov

@@ -28,3 +28,9 @@ ffmpeg-python==0.2.0
 
 tqdm==4.67.1            # Progress bars
 python-dotenv==1.1.1   # Environment variable management
+
+
+torch==2.3.1              # PyTorch (GPU/CPU 자동 감지)
+faster-whisper==1.0.3     # Whisper STT 엔진 (CTranslate2 기반, GPU 가속 지원)
+ffmpeg-python==0.2.0      # ffmpeg 래퍼 (오디오 추출)
+pydub==0.25.1             # 오디오 청크 분리 및 정규화

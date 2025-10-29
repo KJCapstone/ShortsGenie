@@ -56,3 +56,17 @@ Thumbs.db
 
 CLAUDE.md
 GEMINI.md
+
+input/
+# === Videos (do not commit) ===
+*.mp4
+*.mov
+*.avi
+
+# === Notebooks & caches ===
+.ipynb_checkpoints/
+__pycache__/
+
+# === Local envs ===
+venv/
+.venv/

@@ -1,50 +1,47 @@
-"""Main window for the application."""
+"""Main window with page navigation."""
 
-from PySide6.QtWidgets import (  # type: ignore[import-not-found]
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QLabel,
-)
-from PySide6.QtCore import Qt  # type: ignore[import-not-found]
-from PySide6.QtGui import QFont  # type: ignore[import-not-found]
+from PySide6.QtWidgets import QMainWindow, QStackedWidget
+from PySide6.QtCore import Slot
+from .main_page import MainPage
 
+# Constrants
+WINDOW_TITLE = "Shorts Genie"
+WINDOW_MIN_WIDTH = 800
+WINDOW_MIN_HEIGHT = 600
+WINDOW_INIT_WIDTH = 800
+WINDOW_INIT_HEIGHT = 600
 
 class MainWindow(QMainWindow):
-    """Main application window."""
-
+    """Main application window managing page navigation."""
+    
     def __init__(self):
-        """Initialize main window."""
+        """Initialize the main window and set up UI components."""
+
         super().__init__()
-        self.setWindowTitle("SP-AI-LIGHTS - Sports Highlights Auto Editor")
-        self.setMinimumSize(800, 600)
-
-        # Setup UI
         self._setup_ui()
-        self.statusBar().showMessage("Ready")
-
+        
     def _setup_ui(self):
-        """Setup the user interface."""
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
+        """Initialize the user interface."""
 
-        layout = QVBoxLayout()
-        central_widget.setLayout(layout)
+        # Configure window properties
+        self.setWindowTitle(WINDOW_TITLE)
+        self.setMinimumSize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
+        self.resize(WINDOW_INIT_WIDTH, WINDOW_INIT_HEIGHT)
+        
+        # Create central stacked widget for page management
+        self.stacked_widget = QStackedWidget()
+        self.setCentralWidget(self.stacked_widget)
+        
+        # Initialize pages
+        self.main_page = MainPage()
+        
+        # Add pages to stack (index order matters - first is default)
+        self.stacked_widget.addWidget(self.main_page)     # index 0
+        
+        # Connect signals to slots
+        self.main_page.edit_requested.connect(self.show_main_page)
 
-        # Title
-        title = QLabel("SP-AI-LIGHTS")
-        title_font = QFont()
-        title_font.setPointSize(24)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
-
-        # Subtitle
-        subtitle = QLabel("Sports AI Highlights - Auto Editor")
-        subtitle.setStyleSheet("color: gray; font-size: 14pt;")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(subtitle)
-
-        # Add stretch to center content
-        layout.addStretch()
+    @Slot()   
+    def show_main_page(self):
+        """Switch back to main page."""
+        self.stacked_widget.setCurrentIndex(0)

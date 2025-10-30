@@ -29,6 +29,12 @@ ffmpeg-python==0.2.0
 tqdm==4.67.1            # Progress bars
 python-dotenv==1.1.1   # Environment variable management
 
+# ===================================================================
+# AI & LLM
+# ===================================================================
+# Google Generative AI: Google의 생성형 AI (Gemini) API를 사용하기 위한 라이브러리
+google-generativeai==0.8.5
+
 ultralytics
 opencv-python
 numpy

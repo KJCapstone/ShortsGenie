@@ -29,6 +29,24 @@ ffmpeg-python==0.2.0
 tqdm==4.67.1            # Progress bars
 python-dotenv==1.1.1   # Environment variable management
 
+# ===================================================================
+# AI & LLM
+# ===================================================================
+# Google Generative AI: Google의 생성형 AI (Gemini) API를 사용하기 위한 라이브러리
+google-generativeai==0.8.5
+
+# ===================================================================
+# Audio Analysis (Phase 1)
+# ===================================================================
+# Librosa: 오디오 분석 라이브러리 (RMS, Spectral 분석)
+librosa==0.11.0
+
+# Soundfile: 오디오 파일 읽기/쓰기
+soundfile==0.13.1
+
+# OpenAI Whisper: 음성-텍스트 변환 (Apple Silicon MPS 지원)
+openai-whisper==20250625
+
 ultralytics
 opencv-python
 numpy

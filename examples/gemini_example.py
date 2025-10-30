@@ -48,7 +48,7 @@ def example1_simple_text():
     print("=" * 60)
 
     genai = setup_gemini()
-    model = genai.GenerativeModel('gemini-pro')
+    model = genai.GenerativeModel('gemini-2.5-flash')
 
     prompt = "축구 경기 하이라이트 영상에 어울리는 10초 분량의 자막 3가지를 추천해주세요."
 
@@ -66,7 +66,7 @@ def example2_video_analysis():
     print("=" * 60)
 
     genai = setup_gemini()
-    model = genai.GenerativeModel('gemini-pro')
+    model = genai.GenerativeModel('gemini-2.5-flash')
 
     # 비디오 타임스탬프와 이벤트 정보 (실제로는 탐지 시스템에서 가져옴)
     video_info = {
@@ -107,7 +107,7 @@ def example3_caption_generation():
     print("=" * 60)
 
     genai = setup_gemini()
-    model = genai.GenerativeModel('gemini-pro')
+    model = genai.GenerativeModel('gemini-2.5-flash')
 
     segments = [
         {"start": 0, "end": 5, "description": "패스 플레이"},

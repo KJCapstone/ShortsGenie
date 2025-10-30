@@ -64,6 +64,27 @@ class KeyPlayerConfig:
 
 
 @dataclass
+class AudioConfig:
+    """Audio filtering and transcription configuration."""
+    # Whisper STT settings
+    whisper_model: str = "base"  # tiny, base, small, medium, large
+    whisper_device: str = "auto"  # auto, mps, cuda, cpu
+    whisper_language: str = "ko"  # Language code or None for auto-detect
+
+    # Highlight filtering settings
+    threshold_percentile: float = 60.0  # Top N% segments to keep (40% reduction)
+    merge_gap: float = 2.0  # Merge segments within N seconds
+    segment_duration: float = 5.0  # Each segment duration in seconds
+
+    # Audio analysis weights
+    rms_weight: float = 0.7  # RMS energy weight (volume)
+    spectral_weight: float = 0.3  # Spectral centroid weight (frequency)
+
+    # Processing options
+    verbose: bool = True  # Show progress information
+
+
+@dataclass
 class AppConfig:
     """Main application configuration."""
     video: VideoConfig = field(default_factory=VideoConfig)
@@ -71,3 +92,4 @@ class AppConfig:
     roi: ROIConfig = field(default_factory=ROIConfig)
     kalman: KalmanConfig = field(default_factory=KalmanConfig)
     key_player: KeyPlayerConfig = field(default_factory=KeyPlayerConfig)
+    audio: AudioConfig = field(default_factory=AudioConfig)

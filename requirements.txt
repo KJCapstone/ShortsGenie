@@ -32,3 +32,9 @@ python-dotenv==1.1.1   # Environment variable management
 ultralytics
 opencv-python
 numpy
+
+# Librosa: 오디오 및 음악 분석을 위한 라이브러리
+librosa
+
+# SoundFile: 오디오 파일을 NumPy 배열로 읽고 쓰는 데 사용
+soundfile

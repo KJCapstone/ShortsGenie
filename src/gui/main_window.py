@@ -3,6 +3,7 @@
 from PySide6.QtWidgets import QMainWindow, QStackedWidget
 from PySide6.QtCore import Slot
 from .main_page import MainPage
+from .progress_page import ProcessPage
 
 # Constrants
 WINDOW_TITLE = "Shorts Genie"
@@ -34,12 +35,31 @@ class MainWindow(QMainWindow):
         
         # Initialize pages
         self.main_page = MainPage()
+        self.processing = ProcessPage()
         
         # Add pages to stack (index order matters - first is default)
         self.stacked_widget.addWidget(self.main_page)     # index 0
+        self.stacked_widget.addWidget(self.processing)    # index 1
         
         # Connect signals to slots
-        self.main_page.edit_requested.connect(self.show_main_page)
+        self._connect_signals()
+
+    def _connect_signals(self) -> None:
+        """Connect signals from child pages to appropriate slots."""
+        self.main_page.edit_requested.connect(self.show_process_page)
+        self.processing.back_requested.connect(self.show_main_page)
+
+    @Slot(str, str)
+    def show_process_page(self, file_path: str, option: str) -> None:
+        """
+        Switch to editing page and pass data to it.
+        
+        Args:
+            file_path: Path to the selected video file
+            option: Selected editing option/condition
+        """
+        self.processing.set_data(file_path, option)
+        self.stacked_widget.setCurrentIndex(1)
 
     @Slot()   
     def show_main_page(self):

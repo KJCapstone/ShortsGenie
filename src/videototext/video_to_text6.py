@@ -10,12 +10,12 @@ from pydub.silence import split_on_silence
 VIDEO_PATH = "match.mp4"
 AUDIO_FILE_WAV = "temp_audio.wav"
 CLEAN_AUDIO_DIR = "clean_chunks"
-OUTPUT_TXT = "match_transcript.txt"
+OUTPUT_TXT = "script.txt"
 
 MODEL_SIZE = "tiny"   # tiny/base
 LANG = "ko"
 
-MIN_SILENCE_LEN = 1000
+MIN_SILENCE_LEN = 500
 SILENCE_THRESH = -35
 KEEP_SILENCE = 500
 # ----------------------------------
@@ -51,7 +51,7 @@ def split_and_clean_audio(audio_path, output_dir,
                               keep_silence=keep_silence)
 
     if not chunks:
-        raise Exception("❌ 발화 구간을 찾을 수 없습니다. SILENCE_THRESH 조정 필요")
+        raise Exception("발화 구간을 찾을 수 없습니다. SILENCE_THRESH 조정 필요")
 
     os.makedirs(output_dir, exist_ok=True)
     chunk_paths = []
@@ -123,7 +123,7 @@ if __name__ == "__main__":
         transcribe_chunks_merge_text(chunk_paths, chunk_times, OUTPUT_TXT, MODEL_SIZE, LANG)
 
     except Exception as e:
-        print(f"\n🚨 오류 발생: {e}")
+        print(f"\n 오류 발생: {e}")
 
     finally:
         # 4️⃣ 임시 파일 정리

@@ -222,6 +222,13 @@ class ProcessPage(QWidget):
         """)
         frame_layout.addWidget(self.progress_bar)
 
+        # Status message
+        self.status_label = QLabel("영상 분석 중입니다...")
+        self.status_label.setFont(QFont("Arial", 10, QFont.Bold))
+        self.status_label.setStyleSheet("color: #666666; border: none; background-color: transparent;")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        frame_layout.addWidget(self.status_label)
+
         return frame
     
     def _create_step_item(self, text: str, index: int) -> QHBoxLayout:
@@ -240,17 +247,17 @@ class ProcessPage(QWidget):
         # Bullet point
         bullet = QLabel("•")
         bullet.setFont(QFont("Arial", 12))
-        bullet.setStyleSheet("color: #333333;")
+        bullet.setStyleSheet("color: #333333; border: none; background-color: transparent;")
         
         # Step text
         step_label = QLabel(text)
-        step_label.setFont(QFont("Arial", 11))
-        step_label.setStyleSheet("color: #666666;")
+        step_label.setFont(QFont("Arial", 11, QFont.Bold))
+        step_label.setStyleSheet("color: #666666; border: none; background-color: transparent;")
         
         # Progress percentage label (hidden initially)
         progress_label = QLabel("")
         progress_label.setFont(QFont("Arial", 10, QFont.Bold))
-        progress_label.setStyleSheet("color: #7B68BE;")
+        progress_label.setStyleSheet("color: #7B68BE; border: none; background-color: transparent;")
         progress_label.setVisible(False)
         
         layout.addWidget(bullet)
@@ -361,17 +368,17 @@ class ProcessPage(QWidget):
                 labels['progress'].setVisible(True)
                 
                 # Change text color to black for active steps
-                labels['text'].setStyleSheet("color: #333333;")
-                labels['bullet'].setStyleSheet("color: #7B68BE;")
+                labels['text'].setStyleSheet("color: #333333; border: none; background-color: transparent;")
+                labels['bullet'].setStyleSheet("color: #7B68BE; border: none; background-color: transparent;")
                 
                 if step_prog >= 100:
                     # Completed step - show checkmark
                     labels['bullet'].setText("✓")
-                    labels['bullet'].setStyleSheet("color: #4CAF50;")
+                    labels['bullet'].setStyleSheet("color: #4CAF50; border: none; background-color: transparent;")
             else:
                 # Pending step - gray text
-                labels['text'].setStyleSheet("color: #AAAAAA;")
-                labels['bullet'].setStyleSheet("color: #CCCCCC;")
+                labels['text'].setStyleSheet("color: #AAAAAA; border: none; background-color: transparent;")
+                labels['bullet'].setStyleSheet("color: #CCCCCC; border: none; background-color: transparent;")
     
     def on_processing_complete(self) -> None:
         """

@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QFrame, QGridLayout, QSizePolicy
 )
-from PySide6.QtCore import Qt, Slot, QUrl  
+from PySide6.QtCore import Qt, Slot, Signal, QUrl  
 from PySide6.QtGui import QFont, QPainter, QPen, QColor
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput  
 from PySide6.QtMultimediaWidgets import QVideoWidget  
@@ -53,6 +53,9 @@ class DashedFrame(QFrame):
 
 class HighlightCard(QWidget):
     """Widget representing a single highlight video card."""
+
+    # Signal: emitted when card is clicked
+    video_clicked = Signal(int, str)  # (index, video_path)
     
     def __init__(self, index: int, title: str, description: str, video_path: str = None, parent: QWidget = None) -> None:
         """
@@ -153,7 +156,13 @@ class HighlightCard(QWidget):
         layout.addWidget(desc_label)
         layout.addStretch()
     
-class ResultPage(QWidget):
+    def mousePressEvent(self, event) -> None:
+        """Handle mouse click event."""
+        if event.button() == Qt.LeftButton and self.video_path:
+            # Emit signal when card is clicked
+            self.video_clicked.emit(self.index, self.video_path)
+    
+class SelectPage(QWidget):
     """
     Result page widget showing detected highlights in grid layout.
     
@@ -298,6 +307,9 @@ class ResultPage(QWidget):
                 description=highlight.get('description', '하이라이트 설명'),
                 video_path=highlight.get('video_path', None)
             )
+
+            # Connect card click signal to result page signal
+            card.video_clicked.connect(self._on_card_clicked)
             
             self.grid_layout.addWidget(card, 0, col)
             self.highlight_cards.append(card)
@@ -332,3 +344,21 @@ class ResultPage(QWidget):
         ]
         
         self.set_highlights(sample_highlights)
+
+    @Slot(int, str)
+    def _on_card_clicked(self, index: int, video_path: str) -> None:
+        """
+        Handle card click event.
+        
+        Args:
+            index: Index of clicked card
+            video_path: Path to video file
+        """
+        print(f"\n{'=' * 60}")
+        print(f"카드 클릭됨!")
+        print(f"Index: {index}")
+        print(f"Video Path: {video_path}")
+        print(f"{'=' * 60}\n")
+        
+        # Emit signal to parent (main window can connect to this)
+        self.video_preview_requested.emit(index, video_path)

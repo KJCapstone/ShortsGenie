@@ -5,9 +5,10 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QFrame, QGridLayout
 )
-from PySide6.QtCore import Qt, Slot
-from PySide6.QtGui import QFont, QPainter, QPen, QColor, QPixmap
-
+from PySide6.QtCore import Qt, Slot, QUrl  
+from PySide6.QtGui import QFont, QPainter, QPen, QColor
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput  
+from PySide6.QtMultimediaWidgets import QVideoWidget  
 
 # Constants for styling and configuration
 HEADER_HEIGHT_MIN = 60
@@ -53,7 +54,7 @@ class DashedFrame(QFrame):
 class HighlightCard(QWidget):
     """Widget representing a single highlight video card."""
     
-    def __init__(self, index: int, title: str, description: str, thumbnail_path: str = None, parent: QWidget = None) -> None:
+    def __init__(self, index: int, title: str, description: str, video_path: str = None, parent: QWidget = None) -> None:
         """
         Initialize a highlight card.
         
@@ -61,14 +62,14 @@ class HighlightCard(QWidget):
             index: Highlight number (0, 1, 2, ...)
             title: Highlight title
             description: Highlight description
-            thumbnail_path: Path to thumbnail image (optional)
+            video_path: Path to video file (optional)
             parent: Parent widget
         """
         super().__init__(parent)
         self.index = index
         self.title = title
         self.description = description
-        self.thumbnail_path = thumbnail_path
+        self.video_path = video_path
         self._setup_ui()
     
     def _setup_ui(self) -> None:
@@ -77,16 +78,16 @@ class HighlightCard(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
         
-        # Container for thumbnail
-        thumb_container = QWidget()
-        thumb_container_layout = QVBoxLayout(thumb_container)  # ← 레이아웃 추가!
-        thumb_container_layout.setContentsMargins(0, 0, 0, 0)
-        thumb_container_layout.setSpacing(0)
+        # Container for video/thumbnail with layout
+        video_container = QWidget()
+        video_container_layout = QVBoxLayout(video_container)
+        video_container_layout.setContentsMargins(0, 0, 0, 0)
+        video_container_layout.setSpacing(0)
         
-        # Dashed frame (video thumbnail placeholder)
-        thumbnail_frame = DashedFrame()
-        thumbnail_frame.setFixedSize(HIGHLIGHT_CARD_WIDTH, HIGHLIGHT_CARD_HEIGHT)
-        thumbnail_frame.setStyleSheet(f"""
+        # Dashed frame (video container)
+        video_frame = DashedFrame()
+        video_frame.setFixedSize(HIGHLIGHT_CARD_WIDTH, HIGHLIGHT_CARD_HEIGHT)
+        video_frame.setStyleSheet(f"""
             DashedFrame {{
                 background-color: {DASHED_FRAME_BG_COLOR};
                 border: none;
@@ -94,35 +95,48 @@ class HighlightCard(QWidget):
             }}
         """)
         
-        # Thumbnail content
-        thumb_content_layout = QVBoxLayout(thumbnail_frame)
-        thumb_content_layout.setContentsMargins(0, 0, 0, 0)
+        # Video content
+        video_content_layout = QVBoxLayout(video_frame)
+        video_content_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Thumbnail image label
-        self.thumbnail_label = QLabel()
-        self.thumbnail_label.setAlignment(Qt.AlignCenter)
-        self.thumbnail_label.setStyleSheet("border: none; background-color: transparent;")
-        
-        # Load thumbnail if provided, otherwise show icon
-        if self.thumbnail_path:
-            self.set_thumbnail(self.thumbnail_path)
+        # Video widget or placeholder
+        if self.video_path:
+            # Use video widget for video files
+            self.video_widget = QVideoWidget()
+            self.video_widget.setStyleSheet("border: none; background-color: transparent;")
+            
+            # Setup media player
+            self.media_player = QMediaPlayer()
+            self.audio_output = QAudioOutput()
+            self.audio_output.setMuted(True)  # Mute audio
+            self.media_player.setAudioOutput(self.audio_output)
+            self.media_player.setVideoOutput(self.video_widget)
+            
+            # Load video
+            self.media_player.setSource(QUrl.fromLocalFile(self.video_path))
+            
+            # Pause at first frame (don't play)
+            self.media_player.pause()
+            
+            video_content_layout.addWidget(self.video_widget)
         else:
             # Default video icon
-            self.thumbnail_label.setFont(QFont("Arial", 32))
-            self.thumbnail_label.setText("🎬")
-            self.thumbnail_label.setStyleSheet("border: none; background-color: transparent; color: #D0D0D0;")
-        
-        thumb_content_layout.addWidget(self.thumbnail_label)
+            self.placeholder_label = QLabel()
+            self.placeholder_label.setAlignment(Qt.AlignCenter)
+            self.placeholder_label.setFont(QFont("Arial", 32))
+            self.placeholder_label.setText("🎬")
+            self.placeholder_label.setStyleSheet("border: none; background-color: transparent; color: #D0D0D0;")
+            video_content_layout.addWidget(self.placeholder_label)
 
-        # Add thumbnail frame to container layout
-        thumb_container_layout.addWidget(thumbnail_frame)
+        # Add video frame to container layout
+        video_container_layout.addWidget(video_frame)
         
         # Title
         title_label = QLabel(self.title)
         title_label.setFont(QFont("Arial", 9, QFont.Bold))
         title_label.setStyleSheet("color: #333333; border: none; background-color: transparent;")
         title_label.setWordWrap(True)
-        title_label.setAlignment(Qt.AlignLeft)
+        title_label.setAlignment(Qt.AlignCenter)
         title_label.setMaximumHeight(32)
         
         # Description
@@ -130,44 +144,15 @@ class HighlightCard(QWidget):
         desc_label.setFont(QFont("Arial", 8))
         desc_label.setStyleSheet("color: #666666; border: none; background-color: transparent;")
         desc_label.setWordWrap(True)
-        desc_label.setAlignment(Qt.AlignLeft)
+        desc_label.setAlignment(Qt.AlignCenter)
         desc_label.setFixedHeight(36)
 
         # Add widgets to layout
-        layout.addWidget(thumb_container)
+        layout.addWidget(video_container)
         layout.addWidget(title_label)
         layout.addWidget(desc_label)
         layout.addStretch()
     
-    def set_thumbnail(self, thumbnail_path: str) -> None:
-        """
-        Set the thumbnail image from a file path.
-        
-        Args:
-            thumbnail_path: Path to the thumbnail image file
-        """
-        pixmap = QPixmap(thumbnail_path)
-        if not pixmap.isNull():
-            # Scale pixmap to fit the frame while maintaining aspect ratio
-            scaled_pixmap = pixmap.scaled(
-                HIGHLIGHT_CARD_WIDTH - 4,
-                HIGHLIGHT_CARD_HEIGHT - 4,
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
-            )
-            self.thumbnail_label.setPixmap(scaled_pixmap)
-            self.thumbnail_label.setStyleSheet("""
-                border: none; 
-                background-color: transparent;
-                border-radius: 10px;
-            """)
-        else:
-            # If image loading fails, show icon
-            self.thumbnail_label.setFont(QFont("Arial", 32))
-            self.thumbnail_label.setText("🎬")
-            self.thumbnail_label.setStyleSheet("border: none; background-color: transparent; color: #D0D0D0;")
-
-
 class ResultPage(QWidget):
     """
     Result page widget showing detected highlights in grid layout.
@@ -286,7 +271,7 @@ class ResultPage(QWidget):
                 - description: Highlight description
                 - start_time: Start time
                 - end_time: End time
-                - thumbnail_path: (optional) Path to thumbnail image
+                - video_path: (optional) Path to video file
         """
         self.highlights = highlights
         self.highlight_cards = []
@@ -308,7 +293,7 @@ class ResultPage(QWidget):
                 index=i,
                 title=highlight.get('title', f'하이라이트 #{i+1}'),
                 description=highlight.get('description', '하이라이트 설명'),
-                thumbnail_path=highlight.get('thumbnail_path', None)
+                video_path=highlight.get('video_path', None)
             )
             
             self.grid_layout.addWidget(card, 0, col)
@@ -327,7 +312,7 @@ class ResultPage(QWidget):
                 'title': '후보 1) 골 모음 영상',
                 'description': '선수들의 골을 모아서 보여줌',
                 'start_time': '00:30',
-                'end_time': '01:15',
+                'end_time': '01:15'
             },
             {
                 'title': '후보 2) 경기 주요 영상',

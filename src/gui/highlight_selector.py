@@ -3,7 +3,7 @@
 from typing import List, Dict
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QFrame, QGridLayout
+    QFrame, QGridLayout, QSizePolicy
 )
 from PySide6.QtCore import Qt, Slot, QUrl  
 from PySide6.QtGui import QFont, QPainter, QPen, QColor
@@ -16,7 +16,7 @@ HEADER_HEIGHT_MAX = 80
 HEADER_BG_COLOR = "#7B68BE"
 CONTENT_BG_COLOR = "#F4F2FB"
 FRAME_MAX_WIDTH = 740
-FRAME_BG_COLOR = "#FFFFFF"
+FRAME_BG_COLOR = "#F4F2FB"
 FRAME_BORDER_COLOR = "#CCCCCC"
 DASHED_FRAME_BG_COLOR = "#F9F8FC"
 DASHED_LINE_COLOR = "#CCCCCC"
@@ -129,7 +129,7 @@ class HighlightCard(QWidget):
             video_content_layout.addWidget(self.placeholder_label)
 
         # Add video frame to container layout
-        video_container_layout.addWidget(video_frame)
+        video_container_layout.addWidget(video_frame, alignment=Qt.AlignCenter)
         
         # Title
         title_label = QLabel(self.title)
@@ -224,14 +224,11 @@ class ResultPage(QWidget):
         # Create outer frame
         outer_frame = self._create_outer_frame()
         
-        # Center the outer frame
         frame_container = QHBoxLayout()
-        frame_container.addStretch()
         frame_container.addWidget(outer_frame)
-        frame_container.addStretch()
         
         layout.addLayout(frame_container)
-        
+
         return content
     
     def _create_outer_frame(self) -> QFrame:
@@ -255,8 +252,14 @@ class ResultPage(QWidget):
         self.grid_layout = QGridLayout(self.grid_container)
         self.grid_layout.setSpacing(18)  # Spacing between cards
         self.grid_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Prevent unnecessary vertical expansion
+        self.grid_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         
+        # Center grid_container within outer_frame
+        outer_layout.addStretch()
         outer_layout.addWidget(self.grid_container)
+        outer_layout.addStretch()
         
         return outer_frame
     

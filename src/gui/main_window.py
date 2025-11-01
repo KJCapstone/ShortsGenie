@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QMainWindow, QStackedWidget
 from PySide6.QtCore import Slot
 from .main_page import MainPage
 from .progress_page import ProcessPage
+from .highlight_selector import SelectPage
 
 # Constrants
 WINDOW_TITLE = "Shorts Genie"
@@ -36,10 +37,12 @@ class MainWindow(QMainWindow):
         # Initialize pages
         self.main_page = MainPage()
         self.processing = ProcessPage()
+        self.select_page = SelectPage()
         
         # Add pages to stack (index order matters - first is default)
         self.stacked_widget.addWidget(self.main_page)     # index 0
         self.stacked_widget.addWidget(self.processing)    # index 1
+        self.stacked_widget.addWidget(self.select_page)   # index 2
         
         # Connect signals to slots
         self._connect_signals()
@@ -48,6 +51,7 @@ class MainWindow(QMainWindow):
         """Connect signals from child pages to appropriate slots."""
         self.main_page.edit_requested.connect(self.show_process_page)
         self.processing.back_requested.connect(self.show_main_page)
+        self.select_page.video_preview_requested.connect()
 
     @Slot(str, str)
     def show_process_page(self, file_path: str, option: str) -> None:
@@ -65,3 +69,8 @@ class MainWindow(QMainWindow):
     def show_main_page(self):
         """Switch back to main page."""
         self.stacked_widget.setCurrentIndex(0)
+
+    @Slot()
+    def show_result_page(self) -> None:
+        """Show the result page."""
+        self.stacked_widget.setCurrentIndex(2)

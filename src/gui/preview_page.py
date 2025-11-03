@@ -273,7 +273,7 @@ class VideoPreviewPage(QWidget):
         # Title
         title_label = QLabel("⚽ 골 모음 영상")
         title_label.setFont(QFont("Arial", 12, QFont.Bold))
-        title_label.setStyleSheet("color: #333333;")
+        title_label.setStyleSheet("color: #333333; border: none; background-color: transparent;")
         
         # Container for video items (no scroll)
         self.video_list_container = QWidget()
@@ -296,6 +296,7 @@ class VideoPreviewPage(QWidget):
         # Video widget
         self.video_widget = QVideoWidget()
         self.video_widget.setMinimumHeight(350)
+        self.video_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.video_widget.setStyleSheet("""
             QVideoWidget {
                 background-color: #E8E8E8;

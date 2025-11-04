@@ -173,8 +173,14 @@ class SelectPage(QWidget):
     Attributes:
         highlights (list): List of highlight data dictionaries
         highlight_cards (list): List of HighlightCard widgets
+
+    Signals:
+        video_preview_requested: Emitted when user clicks a card (highlights_list, selected_index)
     """
     
+    # Signal: emitted when video preview is requested
+    video_preview_requested = Signal(list, int)  # (highlights, selected_index)
+
     def __init__(self) -> None:
         """Initialize the result page and set up UI components."""
         super().__init__()
@@ -361,4 +367,4 @@ class SelectPage(QWidget):
         print(f"{'=' * 60}\n")
         
         # Emit signal to parent (main window can connect to this)
-        self.video_preview_requested.emit(index, video_path)
+        self.video_preview_requested.emit(self.highlights, index)

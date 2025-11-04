@@ -400,9 +400,17 @@ class VideoPreviewPage(QWidget):
                 border-radius: 3px;
             }
         """)
+
+        # Time label (current time / total time)
+        self.time_label = QLabel("00:00 / 00:00")
+        self.time_label.setFont(QFont("Arial", 9))
+        self.time_label.setStyleSheet("color: #666666; border: none; background-color: transparent;")
+        self.time_label.setMinimumWidth(80)
+        self.time_label.setAlignment(Qt.AlignCenter)
         
         layout.addWidget(self.play_button)
         layout.addWidget(self.progress_slider)
+        layout.addWidget(self.time_label)
         
         return controls
     
@@ -420,6 +428,21 @@ class VideoPreviewPage(QWidget):
         self.media_player.durationChanged.connect(self._on_duration_changed)
         self.media_player.playbackStateChanged.connect(self._on_playback_state_changed)
         self.progress_slider.sliderMoved.connect(self._on_slider_moved)
+
+    def _format_time(self, milliseconds: int) -> str:
+        """
+        Convert milliseconds to MM:SS format.
+        
+        Args:
+            milliseconds: Time in milliseconds
+            
+        Returns:
+            Formatted time string (MM:SS)
+        """
+        seconds = milliseconds // 1000
+        minutes = seconds // 60
+        seconds = seconds % 60
+        return f"{minutes:02d}:{seconds:02d}"
     
     @Slot()
     def _on_play_pause_clicked(self) -> None:
@@ -431,13 +454,23 @@ class VideoPreviewPage(QWidget):
     
     @Slot(int)
     def _on_position_changed(self, position: int) -> None:
-        """Update progress slider."""
+        """Update progress slider and time label."""
         self.progress_slider.setValue(position)
+
+        # Update time label
+        duration = self.media_player.duration()
+        current_time = self._format_time(position)
+        total_time = self._format_time(duration)
+        self.time_label.setText(f"{current_time} / {total_time}")
     
     @Slot(int)
     def _on_duration_changed(self, duration: int) -> None:
-        """Update slider range."""
+        """Update slider range and time label."""
         self.progress_slider.setRange(0, duration)
+
+        # Initialize time label
+        total_time = self._format_time(duration)
+        self.time_label.setText(f"00:00 / {total_time}")
     
     @Slot(int)
     def _on_slider_moved(self, position: int) -> None:

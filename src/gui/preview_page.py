@@ -329,7 +329,7 @@ class VideoPreviewPage(QWidget):
             }
         """)
         
-        self.complete_button = QPushButton("✅ 편집하기")
+        self.complete_button = QPushButton("✅ 출력하기")
         self.complete_button.setMinimumHeight(40)
         self.complete_button.setStyleSheet("""
             QPushButton {

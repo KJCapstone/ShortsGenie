@@ -468,8 +468,8 @@ class VideoPreviewPage(QWidget):
                 self.media_player.setSource(QUrl.fromLocalFile(video_path))
                 self.media_player.play()
     
-    @Slot(list)
-    def load_highlights(self, highlights: List[Dict]) -> None:
+    @Slot(list, int)
+    def load_highlights(self, highlights: List[Dict], selected_index: int = 0) -> None:
         """
         Load highlights and create video list.
         
@@ -477,7 +477,7 @@ class VideoPreviewPage(QWidget):
             highlights: List of highlight dictionaries
         """
         self.highlights = highlights
-        self.current_index = 0
+        self.current_index = selected_index # 선택된 인덱스로 설정
         
         # Clear existing items
         self.video_items.clear()
@@ -495,7 +495,7 @@ class VideoPreviewPage(QWidget):
                 index=i, 
                 title=title, 
                 video_path=video_path,
-                is_selected=(i == 0)
+                is_selected=(i == selected_index)
             )
             item.clicked.connect(self._on_video_item_clicked)
         
@@ -503,9 +503,11 @@ class VideoPreviewPage(QWidget):
             self.video_items.append(item)
         
         # Load first video
-        if highlights and highlights[0].get('video_path'):
-            self.media_player.setSource(QUrl.fromLocalFile(highlights[0]['video_path']))
-            self.media_player.play()
+        if highlights and selected_index < len(highlights):
+            video_path = highlights[selected_index].get('video_path')
+            if video_path:
+                self.media_player.setSource(QUrl.fromLocalFile(video_path))
+                self.media_player.play()
     
     @Slot(str)
     def load_video(self, video_path: str) -> None:

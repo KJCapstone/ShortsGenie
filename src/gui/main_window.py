@@ -5,6 +5,7 @@ from PySide6.QtCore import Slot
 from .main_page import MainPage
 from .progress_page import ProcessPage
 from .highlight_selector import SelectPage
+from .preview_page import VideoPreviewPage
 
 # Constrants
 WINDOW_TITLE = "Shorts Genie"
@@ -38,12 +39,14 @@ class MainWindow(QMainWindow):
         self.main_page = MainPage()
         self.processing = ProcessPage()
         self.select_page = SelectPage()
+        self.preview_page = VideoPreviewPage()
         
         # Add pages to stack (index order matters - first is default)
         self.stacked_widget.addWidget(self.main_page)     # index 0
         self.stacked_widget.addWidget(self.processing)    # index 1
         self.stacked_widget.addWidget(self.select_page)   # index 2
-        
+        self.stacked_widget.addWidget(self.preview_page)  # index 3
+
         # Connect signals to slots
         self._connect_signals()
 
@@ -51,7 +54,12 @@ class MainWindow(QMainWindow):
         """Connect signals from child pages to appropriate slots."""
         self.main_page.edit_requested.connect(self.show_process_page)
         self.processing.back_requested.connect(self.show_main_page)
-        self.select_page.video_preview_requested.connect()
+        self.select_page.video_preview_requested.connect(self.show_preview_page)
+
+    @Slot()   
+    def show_main_page(self) -> None:
+        """Switch back to main page."""
+        self.stacked_widget.setCurrentIndex(0)
 
     @Slot(str, str)
     def show_process_page(self, file_path: str, option: str) -> None:
@@ -65,12 +73,12 @@ class MainWindow(QMainWindow):
         self.processing.set_data(file_path, option)
         self.stacked_widget.setCurrentIndex(1)
 
-    @Slot()   
-    def show_main_page(self):
-        """Switch back to main page."""
-        self.stacked_widget.setCurrentIndex(0)
-
     @Slot()
-    def show_result_page(self) -> None:
-        """Show the result page."""
+    def show_select_page(self) -> None:
+        """Show the select page."""
         self.stacked_widget.setCurrentIndex(2)
+
+    @Slot(list, int)
+    def show_preview_page(self, highlights, selected_index):
+        self.preview_page.load_highlights(highlights, selected_index)
+        self.stacked_widget.setCurrentIndex(3)

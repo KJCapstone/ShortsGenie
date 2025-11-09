@@ -177,8 +177,13 @@ class VideoPreviewPage(QWidget):
     - Left: Video list (골 모음 영상)
     - Right: Video player with controls
     
+    Signals:
+        output_settings_requested: Emitted when user clicks edit button
     """
     
+    # Signal
+    output_settings_requested = Signal() # 출력하기 버튼 클릭 시 발생
+
     def __init__(self) -> None:
         """Initialize the video preview page."""
         super().__init__()
@@ -345,6 +350,9 @@ class VideoPreviewPage(QWidget):
                 background-color: #AED581;
             }
         """)
+
+        # Connect button signals
+        self.complete_button.clicked.connect(self.output_settings_requested.emit)
         
         button_layout.addStretch()
         button_layout.addWidget(self.edit_button)

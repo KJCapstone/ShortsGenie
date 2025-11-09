@@ -6,6 +6,7 @@ from .main_page import MainPage
 from .progress_page import ProcessPage
 from .highlight_selector import SelectPage
 from .preview_page import VideoPreviewPage
+from .output_page import OutputSettingsPage
 
 # Constrants
 WINDOW_TITLE = "Shorts Genie"
@@ -40,12 +41,14 @@ class MainWindow(QMainWindow):
         self.processing = ProcessPage()
         self.select_page = SelectPage()
         self.preview_page = VideoPreviewPage()
+        self.output_page = OutputSettingsPage()
         
         # Add pages to stack (index order matters - first is default)
         self.stacked_widget.addWidget(self.main_page)     # index 0
         self.stacked_widget.addWidget(self.processing)    # index 1
         self.stacked_widget.addWidget(self.select_page)   # index 2
         self.stacked_widget.addWidget(self.preview_page)  # index 3
+        self.stacked_widget.addWidget(self.output_page)   # index 4
 
         # Connect signals to slots
         self._connect_signals()
@@ -55,6 +58,7 @@ class MainWindow(QMainWindow):
         self.main_page.edit_requested.connect(self.show_process_page)
         self.processing.back_requested.connect(self.show_main_page)
         self.select_page.video_preview_requested.connect(self.show_preview_page)
+        self.preview_page.output_settings_requested.connect(self.show_output_page)
 
     @Slot()   
     def show_main_page(self) -> None:
@@ -82,3 +86,8 @@ class MainWindow(QMainWindow):
     def show_preview_page(self, highlights, selected_index):
         self.preview_page.load_highlights(highlights, selected_index)
         self.stacked_widget.setCurrentIndex(3)
+
+    @Slot()
+    def show_output_page(self) -> None:
+        """Show the output page."""
+        self.stacked_widget.setCurrentIndex(4)

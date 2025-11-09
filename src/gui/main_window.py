@@ -55,7 +55,7 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         """Connect signals from child pages to appropriate slots."""
-        self.main_page.edit_requested.connect(self.show_process_page)
+        self.main_page.edit_requested.connect(self.show_progress_page)
         self.select_page.video_preview_requested.connect(self.show_preview_page)
         self.preview_page.output_settings_requested.connect(self.show_output_page)
 
@@ -65,7 +65,7 @@ class MainWindow(QMainWindow):
         self.stacked_widget.setCurrentIndex(0)
 
     @Slot(str, str)
-    def show_process_page(self, file_path: str, option: str) -> None:
+    def show_progress_page(self, file_path: str, option: str) -> None:
         """
         Switch to editing page and pass data to it.
         
@@ -73,7 +73,7 @@ class MainWindow(QMainWindow):
             file_path: Path to the selected video file
             option: Selected editing option/condition
         """
-        self.processing.set_data(file_path, option)
+        self.progress_page.set_data(file_path, option)
         self.stacked_widget.setCurrentIndex(1)
 
     @Slot()

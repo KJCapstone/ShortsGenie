@@ -57,7 +57,7 @@ class DashedFrame(QFrame):
         painter.drawRoundedRect(rect, 10, 10)
 
 
-class ProcessPage(QWidget):
+class ProgressPage(QWidget):
     """
     Process page widget showing video processing progress (waiting screen).
     
@@ -81,7 +81,7 @@ class ProcessPage(QWidget):
         step_progress (list): Progress values for each step
     """
     # Signal: emitted when editing is requested with file path and selected option
-    back_requested = Signal()
+    
     
     def __init__(self) -> None:
         """Initialize the main page and set up UI components."""

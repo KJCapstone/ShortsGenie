@@ -219,7 +219,7 @@ class OutputSettingsPage(QWidget):
         folder_button.setCursor(Qt.PointingHandCursor)
         folder_button.setStyleSheet("""
             QPushButton {
-                background-color: #f3f4f6;
+                background-color: #E0E0E0;
                 border: 1px solid #d1d5db;
                 border-radius: 8px;
                 font-size: 16px;

@@ -563,3 +563,11 @@ class VideoPreviewPage(QWidget):
             'title': '영상',
             'video_path': video_path
         }])
+
+    def hideEvent(self, event) -> None:
+        """Stop video playback when page is hidden."""
+        # 오른쪽 패널의 영상 재생 중지
+        if self.media_player:
+            self.media_player.stop()
+        
+        super().hideEvent(event)

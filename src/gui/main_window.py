@@ -102,7 +102,7 @@ class MainWindow(QMainWindow):
         Args:
             video_info: Dictionary containing selected video information
         """
-        # 선택된 영상 정보만 저장 (UI는 건드리지 않음 - 사용자가 직접 입력)
+        # 선택된 영상 정보 저장
         self.selected_video_info = video_info
         self.output_page.video_info = video_info
         

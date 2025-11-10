@@ -1,5 +1,6 @@
 """Main window with page navigation."""
 
+from typing import Dict
 from PySide6.QtWidgets import QMainWindow, QStackedWidget
 from PySide6.QtCore import Slot
 from .main_page import MainPage
@@ -20,8 +21,8 @@ class MainWindow(QMainWindow):
     
     def __init__(self):
         """Initialize the main window and set up UI components."""
-
         super().__init__()
+        self.selected_video_info = None # 선택된 영상 정보 저장
         self._setup_ui()
         
     def _setup_ui(self):
@@ -83,10 +84,27 @@ class MainWindow(QMainWindow):
 
     @Slot(list, int)
     def show_preview_page(self, highlights, selected_index):
+        """
+        Show preview page with highlights.
+        
+        Args:
+            highlights: List of highlight dictionaries
+            selected_index: Index of initially selected video
+        """
         self.preview_page.load_highlights(highlights, selected_index)
         self.stacked_widget.setCurrentIndex(3)
 
-    @Slot()
-    def show_output_page(self) -> None:
-        """Show the output page."""
+    @Slot(dict)
+    def show_output_page(self, video_info: Dict) -> None:
+        """
+        Show output page with selected video info.
+        
+        Args:
+            video_info: Dictionary containing selected video information
+        """
+        # 선택된 영상 정보만 저장 (UI는 건드리지 않음 - 사용자가 직접 입력)
+        self.selected_video_info = video_info
+        self.output_page.video_info = video_info
+        
+        # 페이지 전환
         self.stacked_widget.setCurrentIndex(4)

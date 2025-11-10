@@ -69,17 +69,16 @@ class OutputSettingsPage(QWidget):
     - Choosing output quality
     
     Signals:
-        back_requested: Emitted when user wants to go back
         export_requested: Emitted with (save_path, filename, quality)
     """
     
     # Signals
-    back_requested = Signal()
     export_requested = Signal(str, str, str)
     
     def __init__(self, parent=None):
         """Initialize the output settings page."""
         super().__init__(parent)
+        self.video_info = None
         self._init_ui()
         
     def _init_ui(self):

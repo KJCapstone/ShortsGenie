@@ -1,58 +1,132 @@
-# Ultralytics: YOLOv8을 가장 쉽게 사용할 수 있는 공식 라이브러리
-ultralytics==8.3.204
-
-# OpenCV: 비디오/이미지 처리를 위한 필수 라이브러리
-opencv-python==4.12.0.88
-
-# ===================================================================
-# Data Handling & Smoothing
-# ===================================================================
-# NumPy: 모든 과학 및 수치 계산의 기반
-numpy==2.2.6
-
-# PyKalman: 칼만 필터를 쉽게 구현하기 위한 라이브러리
-pykalman==0.10.2
-
-# ===================================================================
-# GUI Development
-# ===================================================================
-# PySide6: Qt 프레임워크를 파이썬에서 사용하기 위한 라이브러리 (LGPL 라이선스)
-PySide6==6.9.3
-
-# ===================================================================
-# Video/Audio Handling
-# ===================================================================
-# FFmpeg Python Wrapper: 파이썬 코드에서 FFmpeg를 제어하기 위한 라이브러리
-# 실제 FFmpeg 프로그램은 각 OS에 맞게 별도로 설치해야 합니다.
+aistudio-sdk==0.3.8
+annotated-types==0.7.0
+anyio==4.11.0
+audioop-lts==0.2.2
+audioread==3.1.0
+bce-python-sdk==0.9.50
+cachetools==6.2.1
+certifi==2025.8.3
+cffi==2.0.0
+chardet==5.2.0
+charset-normalizer==3.4.3
+click==8.3.0
+coloredlogs==15.0.1
+colorlog==6.10.1
+contourpy==1.3.3
+cycler==0.12.1
+decorator==5.2.1
 ffmpeg-python==0.2.0
-
-tqdm==4.67.1            # Progress bars
-python-dotenv==1.1.1   # Environment variable management
-
-# ===================================================================
-# AI & LLM
-# ===================================================================
-# Google Generative AI: Google의 생성형 AI (Gemini) API를 사용하기 위한 라이브러리
+filelock==3.19.1
+flatbuffers==25.9.23
+fonttools==4.60.1
+fsspec==2025.9.0
+future==1.0.0
+google-ai-generativelanguage==0.6.15
+google-api-core==2.28.1
+google-api-python-client==2.185.0
+google-auth==2.42.0
+google-auth-httplib2==0.2.0
 google-generativeai==0.8.5
-
-# ===================================================================
-# Audio Analysis (Phase 1)
-# ===================================================================
-# Librosa: 오디오 분석 라이브러리 (RMS, Spectral 분석)
+googleapis-common-protos==1.71.0
+grpcio==1.76.0
+grpcio-status==1.71.2
+h11==0.16.0
+hf-xet==1.2.0
+httpcore==1.0.9
+httplib2==0.31.0
+httpx==0.28.1
+huggingface_hub==1.1.2
+humanfriendly==10.0
+idna==3.10
+imagesize==1.4.1
+Jinja2==3.1.6
+joblib==1.5.2
+kiwisolver==1.4.9
+lap==0.5.12
+lazy_loader==0.4
 librosa==0.11.0
-
-# Soundfile: 오디오 파일 읽기/쓰기
-soundfile==0.13.1
-
-# OpenAI Whisper: 음성-텍스트 변환 (Apple Silicon MPS 지원)
+llvmlite==0.45.1
+MarkupSafe==3.0.3
+matplotlib==3.10.6
+modelscope==1.31.0
+more-itertools==10.8.0
+mpmath==1.3.0
+msgpack==1.1.2
+networkx==3.5
+numba==0.62.1
+numpy==2.2.6
+onnxruntime==1.23.2
 openai-whisper==20250625
-
-ultralytics
-opencv-python
-numpy
-
-# Librosa: 오디오 및 음악 분석을 위한 라이브러리
-librosa
-
-# SoundFile: 오디오 파일을 NumPy 배열로 읽고 쓰는 데 사용
-soundfile
+opencv-contrib-python==4.10.0.84
+opencv-python==4.12.0.88
+opt-einsum==3.3.0
+packaging==25.0
+paddleocr==3.3.1
+paddlepaddle==3.2.1
+paddlex==3.3.8
+pandas==2.3.3
+pillow==11.3.0
+platformdirs==4.5.0
+polars==1.33.1
+pooch==1.8.2
+prettytable==3.16.0
+proto-plus==1.26.1
+protobuf==5.29.5
+psutil==7.1.0
+py-cpuinfo==9.0.0
+pyasn1==0.6.1
+pyasn1_modules==0.4.2
+pyclipper==1.3.0.post6
+pycparser==2.23
+pycryptodome==3.23.0
+pydantic==2.12.3
+pydantic_core==2.41.4
+pykalman==0.10.2
+pyparsing==3.2.5
+pypdfium2==5.0.0
+PySide6==6.9.3
+PySide6_Addons==6.9.3
+PySide6_Essentials==6.9.3
+python-bidi==0.6.7
+python-dateutil==2.9.0.post0
+python-dotenv==1.1.1
+pytz==2025.2
+PyYAML==6.0.2
+regex==2025.10.23
+requests==2.32.5
+rsa==4.9.1
+ruamel.yaml==0.18.16
+ruamel.yaml.clib==0.2.14
+safetensors==0.6.2
+scikit-base==0.12.6
+scikit-learn==1.7.2
+scipy==1.16.2
+setuptools==80.9.0
+shapely==2.1.2
+shellingham==1.5.4
+shiboken6==6.9.3
+silero-vad==6.2.0
+six==1.17.0
+sniffio==1.3.1
+soundfile==0.13.1
+soxr==1.0.0
+standard-aifc==3.13.0
+standard-chunk==3.13.0
+standard-sunau==3.13.0
+sympy==1.14.0
+threadpoolctl==3.6.0
+tiktoken==0.12.0
+torch==2.8.0
+torchaudio==2.8.0
+torchvision==0.23.0
+tqdm==4.67.1
+typer-slim==0.20.0
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+tzdata==2025.2
+ujson==5.11.0
+ultralytics==8.3.204
+ultralytics-thop==2.0.17
+uritemplate==4.2.0
+urllib3==2.5.0
+wcwidth==0.2.14

@@ -1,7 +1,7 @@
 """Main page for file selection and editing option selection."""
 
 import os
-from typing import List
+from typing import List, Dict
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QFrame, QProgressBar
@@ -80,8 +80,8 @@ class ProgressPage(QWidget):
         step_labels (list): Labels for each processing step
         step_progress (list): Progress values for each step
     """
-    # Signal: emitted when editing is requested with file path and selected option
-    
+    # AI 처리 완료 시 emit할 signal
+    processing_completed = Signal(list)
     
     def __init__(self) -> None:
         """Initialize the main page and set up UI components."""
@@ -122,11 +122,12 @@ class ProgressPage(QWidget):
         # Icon
         icon_label = QLabel("🎬")
         icon_label.setFont(QFont("Arial", 20))
+        icon_label.setStyleSheet("border: none; background-color: transparent;")
         
         # Title
         title_label = QLabel("Shorts Genie")
         title_label.setFont(QFont("Arial", 18, QFont.Bold))
-        title_label.setStyleSheet("color: white;")
+        title_label.setStyleSheet("color: white; border: none; background-color: transparent;")
         
         layout.addWidget(icon_label)
         layout.addWidget(title_label)
@@ -140,19 +141,15 @@ class ProgressPage(QWidget):
         content.setStyleSheet(f"background-color: {CONTENT_BG_COLOR};")
         
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setContentsMargins(30, 20, 30, 20)
         
         # Create outer frame
         outer_frame = self._create_outer_frame()
         
-        # Center the outer frame
-        frame_container = QHBoxLayout()
-        frame_container.addStretch()
+        frame_container = QHBoxLayout()    
         frame_container.addWidget(outer_frame)
-        frame_container.addStretch()
-        
+  
         layout.addLayout(frame_container)
-        layout.addStretch()
         
         return content
     
@@ -390,18 +387,43 @@ class ProgressPage(QWidget):
         print("Processing Complete!")
         print("=" * 60 + "\n")
         
-        # Here you can:
-        # - Show completion message
-        # - Enable "View Result" button
-        # - Automatically go to result page
-        # etc.
-    
-    @Slot()
-    def go_back(self) -> None:
+        # AI 결과 가져오기
+        ai_results = self._get_ai_results()
+
+        # SelectPage로 결과 전달
+        self.processing_completed.emit(ai_results)
+
+    def _get_ai_results(self) -> List:
         """
-        Request navigation back to main page.
-        
-        Emits the back_requested signal to notify the parent window
-        to switch to the main page.
+        Get AI processing results.
+
+        Returns:
+        List of highlight dictionaries with keys:
+        - title: 하이라이트 제목
+        - description: 하이라이트 설명
+        - start_time: 시작 시간
+        - end_time: 종료 시간
+        - video_path: 생성된 영상 파일 경로
         """
-        self.back_requested.emit()
+        # 테스트용 더미 데이터
+
+        return [
+            {
+                'title': '후보 1) 골 모음 영상',
+                'description': '선수들의 골을 모아서 보여줌',
+                'start_time': '00:30',
+                'end_time': '01:15'
+            },
+            {
+                'title': '후보 2) 경기 주요 영상',
+                'description': '골 넣은걸 제외하고 볼만할 모음',
+                'start_time': '02:45',
+                'end_time': '03:20'
+            },
+            {
+                'title': '후보 3) 밈 영상',
+                'description': '음악이 추가된 하이라이트',
+                'start_time': '05:10',
+                'end_time': '06:00'
+            }
+        ]

@@ -18,6 +18,13 @@ WINDOW_INIT_HEIGHT = 600
 
 class MainWindow(QMainWindow):
     """Main application window managing page navigation."""
+    OPTION_MAP = {
+
+        "⚽ 골 모음 영상": "골",
+        "⚡ 경기 주요 영상": "경기",
+        "🎵 밈 영상": "밈"     
+
+    }
     
     def __init__(self):
         """Initialize the main window and set up UI components."""
@@ -57,13 +64,9 @@ class MainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         """Connect signals from child pages to appropriate slots."""
         self.main_page.edit_requested.connect(self.show_progress_page)
+        self.progress_page.processing_completed.connect(self.show_select_page)
         self.select_page.video_preview_requested.connect(self.show_preview_page)
         self.preview_page.output_settings_requested.connect(self.show_output_page)
-
-    @Slot()   
-    def show_main_page(self) -> None:
-        """Switch back to main page."""
-        self.stacked_widget.setCurrentIndex(0)
 
     @Slot(str, str)
     def show_progress_page(self, file_path: str, option: str) -> None:
@@ -74,12 +77,16 @@ class MainWindow(QMainWindow):
             file_path: Path to the selected video file
             option: Selected editing option/condition
         """
-        self.progress_page.set_data(file_path, option)
+
+        selected_option = self.OPTION_MAP.get(option)
+
+        self.progress_page.set_data(file_path, selected_option)
         self.stacked_widget.setCurrentIndex(1)
 
-    @Slot()
-    def show_select_page(self) -> None:
+    @Slot(list)
+    def show_select_page(self, highlights) -> None:
         """Show the select page."""
+        self.select_page.set_highlights(highlights)
         self.stacked_widget.setCurrentIndex(2)
 
     @Slot(list, int)

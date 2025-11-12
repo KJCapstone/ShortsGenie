@@ -122,11 +122,12 @@ class ProgressPage(QWidget):
         # Icon
         icon_label = QLabel("🎬")
         icon_label.setFont(QFont("Arial", 20))
+        icon_label.setStyleSheet("border: none; background-color: transparent;")
         
         # Title
         title_label = QLabel("Shorts Genie")
         title_label.setFont(QFont("Arial", 18, QFont.Bold))
-        title_label.setStyleSheet("color: white;")
+        title_label.setStyleSheet("color: white; border: none; background-color: transparent;")
         
         layout.addWidget(icon_label)
         layout.addWidget(title_label)
@@ -140,19 +141,15 @@ class ProgressPage(QWidget):
         content.setStyleSheet(f"background-color: {CONTENT_BG_COLOR};")
         
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setContentsMargins(30, 20, 30, 20)
         
         # Create outer frame
         outer_frame = self._create_outer_frame()
         
-        # Center the outer frame
-        frame_container = QHBoxLayout()
-        frame_container.addStretch()
+        frame_container = QHBoxLayout()    
         frame_container.addWidget(outer_frame)
-        frame_container.addStretch()
-        
+  
         layout.addLayout(frame_container)
-        layout.addStretch()
         
         return content
     

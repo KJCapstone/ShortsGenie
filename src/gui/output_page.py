@@ -128,8 +128,7 @@ class OutputSettingsPage(QWidget):
         content.setStyleSheet(f"background-color: {CONTENT_BG_COLOR};")
         
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(30, 30, 30, 30)
-        content_layout.setSpacing(20)
+        content_layout.setContentsMargins(30, 20, 30, 20)
 
         # Container frame
         container = self._setup_container()

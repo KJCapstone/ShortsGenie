@@ -566,20 +566,6 @@ class VideoPreviewPage(QWidget):
             if video_path:
                 self.media_player.setSource(QUrl.fromLocalFile(video_path))
                 self.media_player.play()
-    
-    @Slot(str)
-    def load_video(self, video_path: str) -> None:
-        """
-        Load a single video (for backward compatibility).
-        
-        Args:
-            video_path: Path to the video file
-        """
-        # Create a single highlight
-        self.load_highlights([{
-            'title': '영상',
-            'video_path': video_path
-        }])
 
     def hideEvent(self, event) -> None:
         """Stop video playback when page is hidden."""

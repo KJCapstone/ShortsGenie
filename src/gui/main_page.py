@@ -424,6 +424,14 @@ class MainPage(QWidget):
             QMessageBox.warning(self, "경고", "파일이 존재하지 않습니다.")
             return
         
+        if not os.access(file_path, os.R_OK):
+            QMessageBox.critical(
+            self,
+            "권한 오류",
+            "파일 읽기 권한이 없습니다."
+            )
+            return
+        
         # Validate extension
         if not file_path.lower().endswith((".mp4", ".avi", ".mov", ".mkv")):
             QMessageBox.warning(self, "경고", "지원하지 않는 영상 형식입니다.")

@@ -70,3 +70,6 @@ __pycache__/
 # === Local envs ===
 venv/
 .venv/
+
+# Google Cloud Service Account Credentials
+src/videototext/diesel-channel-477619-u6-db0de75fbe60.json

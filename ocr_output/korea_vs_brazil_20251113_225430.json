@@ -1,0 +1,48 @@
+{
+  "video_path": "input/korea_vs_brazil.mp4",
+  "processing_date": "2025-11-13T22:54:30.596760",
+  "baseline_interval_seconds": 60.0,
+  "audio_boost_enabled": true,
+  "total_goals_detected": 3,
+  "goals": [
+    {
+      "frame": 14384,
+      "timestamp": 239.97266795522992,
+      "old_score": [
+        0,
+        0
+      ],
+      "new_score": [
+        0,
+        1
+      ],
+      "team": "away"
+    },
+    {
+      "frame": 25172,
+      "timestamp": 419.95216892165234,
+      "old_score": [
+        0,
+        1
+      ],
+      "new_score": [
+        0,
+        2
+      ],
+      "team": "away"
+    },
+    {
+      "frame": 35960,
+      "timestamp": 599.9316698880748,
+      "old_score": [
+        0,
+        2
+      ],
+      "new_score": [
+        0,
+        4
+      ],
+      "team": "away"
+    }
+  ]
+}

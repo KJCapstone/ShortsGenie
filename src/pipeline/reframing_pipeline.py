@@ -102,7 +102,8 @@ class ReframingPipeline:
 
         cropper = Cropper(
             output_width=self.config.video.output_width,
-            output_height=self.config.video.output_height
+            output_height=self.config.video.output_height,
+            config=self.config.cropper
         )
 
         # Step 2: Run detection on all frames
@@ -224,7 +225,9 @@ def process_video_simple(
     output_path: str,
     output_width: int = 1080,
     output_height: int = 1920,
-    use_soccernet: bool = True
+    use_soccernet: bool = True,
+    letterbox_top: int = 288,
+    letterbox_bottom: int = 288
 ) -> Dict[str, any]:
     """Simple convenience function for processing a video.
 
@@ -234,6 +237,8 @@ def process_video_simple(
         output_width: Output video width
         output_height: Output video height
         use_soccernet: Use SoccerNet fine-tuned model
+        letterbox_top: Top letterbox size in pixels (default 288)
+        letterbox_bottom: Bottom letterbox size in pixels (default 288)
 
     Returns:
         Processing statistics dict
@@ -241,6 +246,8 @@ def process_video_simple(
     config = AppConfig()
     config.video.output_width = output_width
     config.video.output_height = output_height
+    config.cropper.letterbox_top = letterbox_top
+    config.cropper.letterbox_bottom = letterbox_bottom
 
     pipeline = ReframingPipeline(config)
     return pipeline.process_goal_clip(input_path, output_path, use_soccernet_model=use_soccernet)

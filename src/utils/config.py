@@ -85,6 +85,14 @@ class AudioConfig:
 
 
 @dataclass
+class CropperConfig:
+    """Video cropping and letterboxing configuration."""
+    letterbox_top: int = 288  # Top black bar size in pixels (15% of 1920)
+    letterbox_bottom: int = 288  # Bottom black bar size in pixels (15% of 1920)
+    # Note: No horizontal letterbox - width always fills completely (1080px)
+
+
+@dataclass
 class AppConfig:
     """Main application configuration."""
     video: VideoConfig = field(default_factory=VideoConfig)
@@ -93,3 +101,4 @@ class AppConfig:
     kalman: KalmanConfig = field(default_factory=KalmanConfig)
     key_player: KeyPlayerConfig = field(default_factory=KeyPlayerConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
+    cropper: CropperConfig = field(default_factory=CropperConfig)

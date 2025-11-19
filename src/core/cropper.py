@@ -2,27 +2,37 @@
 
 import cv2
 import numpy as np
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 
 from src.models.detection_result import ROI
 from src.utils.video_utils import VideoReader, VideoWriter
+from src.utils.config import CropperConfig
 
 
 class Cropper:
     """Crop video frames according to ROI trajectory."""
 
-    def __init__(self, output_width: int = 1080, output_height: int = 1920):
+    def __init__(
+        self,
+        output_width: int = 1080,
+        output_height: int = 1920,
+        config: Optional[CropperConfig] = None
+    ):
         """Initialize cropper.
 
         Args:
             output_width: Output video width
             output_height: Output video height
+            config: Cropper configuration (uses defaults if None)
         """
         self.output_width = output_width
         self.output_height = output_height
+        self.config = config or CropperConfig()
 
         print(f"[Cropper] Output size: {output_width}x{output_height}")
+        print(f"[Cropper] Letterbox - Top: {self.config.letterbox_top}px, "
+              f"Bottom: {self.config.letterbox_bottom}px")
 
     def process(
         self,
@@ -71,55 +81,56 @@ class Cropper:
         print(f"[Cropper] ✓ Complete: {output_path}")
 
     def _crop_frame(self, frame: np.ndarray, roi: ROI) -> np.ndarray:
-        """Crop a single frame according to ROI with aspect ratio preservation.
+        """Crop a single frame with full vertical height and horizontal tracking.
 
         Args:
             frame: Input frame
-            roi: ROI specification
+            roi: ROI specification (only center_x is used for horizontal tracking)
 
         Returns:
-            Cropped frame with letterboxing if needed (1080x1920)
+            Cropped frame with vertical letterboxing (1080x1920)
+            - Uses full frame height
+            - Tracks horizontally based on ROI center
+            - No horizontal letterbox (fills 1080px width)
         """
         frame_height, frame_width = frame.shape[:2]
 
-        # Calculate crop boundaries
-        half_width = roi.width // 2
-        half_height = roi.height // 2
+        # Calculate available height for content (excluding letterbox)
+        content_height = self.output_height - self.config.letterbox_top - self.config.letterbox_bottom
 
+        # Calculate scale to fit full frame height into content_height
+        scale = content_height / frame_height
+
+        # Calculate required width from original frame to get output_width after scaling
+        required_width = int(self.output_width / scale)
+
+        # Calculate horizontal crop boundaries centered on ROI
+        half_width = required_width // 2
         x1 = max(0, roi.center_x - half_width)
-        y1 = max(0, roi.center_y - half_height)
         x2 = min(frame_width, roi.center_x + half_width)
-        y2 = min(frame_height, roi.center_y + half_height)
 
-        # Crop
+        # Adjust if we hit frame boundaries
+        if x1 == 0:
+            x2 = min(required_width, frame_width)
+        elif x2 == frame_width:
+            x1 = max(0, frame_width - required_width)
+
+        # Use full frame height (no vertical cropping of original content)
+        y1 = 0
+        y2 = frame_height
+
+        # Crop frame: full height, ROI-centered width
         cropped = frame[y1:y2, x1:x2]
-
-        # Get actual cropped dimensions
-        cropped_height, cropped_width = cropped.shape[:2]
 
         # Create black canvas for output (1080x1920)
         canvas = np.zeros((self.output_height, self.output_width, 3), dtype=np.uint8)
 
-        # Calculate scaling to fit within 1080x1920 while maintaining aspect ratio
-        scale_width = self.output_width / cropped_width
-        scale_height = self.output_height / cropped_height
-        scale = min(scale_width, scale_height)  # Use smaller scale to fit within bounds
+        # Resize cropped frame to fit content area (should result in exactly 1080x1344)
+        resized = cv2.resize(cropped, (self.output_width, content_height), interpolation=cv2.INTER_LINEAR)
 
-        # Calculate new dimensions maintaining aspect ratio
-        new_width = int(cropped_width * scale)
-        new_height = int(cropped_height * scale)
+        # Place resized video on canvas with vertical letterbox
+        y_offset = self.config.letterbox_top
 
-        # Only resize if necessary (if scale != 1.0)
-        if scale != 1.0:
-            resized = cv2.resize(cropped, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
-        else:
-            resized = cropped
-
-        # Calculate position to center the video on canvas
-        x_offset = (self.output_width - new_width) // 2
-        y_offset = (self.output_height - new_height) // 2
-
-        # Place resized video on canvas (centered with letterboxing)
-        canvas[y_offset:y_offset + new_height, x_offset:x_offset + new_width] = resized
+        canvas[y_offset:y_offset + content_height, 0:self.output_width] = resized
 
         return canvas

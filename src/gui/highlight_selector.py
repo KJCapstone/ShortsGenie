@@ -325,32 +325,6 @@ class SelectPage(QWidget):
         print(f"Result Page: Displaying {min(len(highlights), 3)} highlights")
         print(f"{'=' * 60}\n")
     
-    @Slot()
-    def load_sample_data(self) -> None:
-        """Load sample highlight data for testing."""
-        sample_highlights = [
-            {
-                'title': '후보 1) 골 모음 영상',
-                'description': '선수들의 골을 모아서 보여줌',
-                'start_time': '00:30',
-                'end_time': '01:15'
-            },
-            {
-                'title': '후보 2) 경기 주요 영상',
-                'description': '골 넣은걸 제외하고 볼만할 모음',
-                'start_time': '02:45',
-                'end_time': '03:20'
-            },
-            {
-                'title': '후보 3) 밈 영상',
-                'description': '음악이 추가된 하이라이트',
-                'start_time': '05:10',
-                'end_time': '06:00'
-            }
-        ]
-        
-        self.set_highlights(sample_highlights)
-
     @Slot(int, str)
     def _on_card_clicked(self, index: int, video_path: str) -> None:
         """

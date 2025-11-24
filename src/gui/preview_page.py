@@ -177,8 +177,13 @@ class VideoPreviewPage(QWidget):
     - Left: Video list (골 모음 영상)
     - Right: Video player with controls
     
+    Signals:
+        output_settings_requested: Emitted when user clicks edit button
     """
     
+    # Signal
+    output_settings_requested = Signal(dict) # 출력하기 버튼 클릭 시 발생
+
     def __init__(self) -> None:
         """Initialize the video preview page."""
         super().__init__()
@@ -345,6 +350,9 @@ class VideoPreviewPage(QWidget):
                 background-color: #AED581;
             }
         """)
+
+        # Connect button signals
+        self.complete_button.clicked.connect(self._on_complete_button_clicked)
         
         button_layout.addStretch()
         button_layout.addWidget(self.edit_button)
@@ -485,6 +493,23 @@ class VideoPreviewPage(QWidget):
         else:
             self.play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
     
+    @Slot()
+    def _on_complete_button_clicked(self) -> None:
+        """Handle complete button click - emit selected highlight info."""
+        if self.highlights and self.current_index < len(self.highlights):
+            # 1. 현재 선택된 영상 정보 가져오기
+            selected_highlight = self.highlights[self.current_index]
+            # 2. 시그널 발생 - 출력 설정 페이지로 전환 요청
+            self.output_settings_requested.emit(selected_highlight)
+            
+            print(f"\n{'=' * 60}")
+            print(f"편집하기 버튼 클릭!")
+            print(f"선택된 영상: {selected_highlight.get('title', 'N/A')}")
+            print(f"영상 경로: {selected_highlight.get('video_path', 'N/A')}")
+            print(f"{'=' * 60}\n")
+        else:
+            print("선택된 영상이 없습니다.")
+
     @Slot(int)
     def _on_video_item_clicked(self, index: int) -> None:
         """Handle video list item click."""
@@ -541,17 +566,11 @@ class VideoPreviewPage(QWidget):
             if video_path:
                 self.media_player.setSource(QUrl.fromLocalFile(video_path))
                 self.media_player.play()
-    
-    @Slot(str)
-    def load_video(self, video_path: str) -> None:
-        """
-        Load a single video (for backward compatibility).
+
+    def hideEvent(self, event) -> None:
+        """Stop video playback when page is hidden."""
+        # 오른쪽 패널의 영상 재생 중지
+        if self.media_player:
+            self.media_player.stop()
         
-        Args:
-            video_path: Path to the video file
-        """
-        # Create a single highlight
-        self.load_highlights([{
-            'title': '영상',
-            'video_path': video_path
-        }])
+        super().hideEvent(event)

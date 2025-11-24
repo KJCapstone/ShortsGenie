@@ -160,11 +160,12 @@ class MainPage(QWidget):
         # Icon
         icon_label = QLabel("🎬")
         icon_label.setFont(QFont("Arial", 20))
+        icon_label.setStyleSheet("border: none; background-color: transparent;")
         
         # Title
         title_label = QLabel("Shorts Genie")
         title_label.setFont(QFont("Arial", 18, QFont.Bold))
-        title_label.setStyleSheet("color: white;")
+        title_label.setStyleSheet("color: white; border: none; background-color: transparent;")
         
         layout.addWidget(icon_label)
         layout.addWidget(title_label)
@@ -178,19 +179,15 @@ class MainPage(QWidget):
         content.setStyleSheet(f"background-color: {CONTENT_BG_COLOR};")
         
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setContentsMargins(30, 20, 30, 20)
         
         # Create outer frame
         outer_frame = self._create_outer_frame()
         
-        # Center the outer frame
         frame_container = QHBoxLayout()
-        frame_container.addStretch()
         frame_container.addWidget(outer_frame)
-        frame_container.addStretch()
         
         layout.addLayout(frame_container)
-        layout.addStretch()
         
         return content
     
@@ -425,6 +422,14 @@ class MainPage(QWidget):
         # Validate existence
         if not os.path.exists(file_path):
             QMessageBox.warning(self, "경고", "파일이 존재하지 않습니다.")
+            return
+        
+        if not os.access(file_path, os.R_OK):
+            QMessageBox.critical(
+            self,
+            "권한 오류",
+            "파일 읽기 권한이 없습니다."
+            )
             return
         
         # Validate extension

@@ -130,3 +130,4 @@ ultralytics-thop==2.0.17
 uritemplate==4.2.0
 urllib3==2.5.0
 wcwidth==0.2.14
+scenedetect[opencv]==0.6.5

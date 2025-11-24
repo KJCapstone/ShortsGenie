@@ -29,8 +29,19 @@ class ROICalculator:
         self.target_height = 1920  # Target height (may be adjusted based on source)
         self.target_aspect_ratio = 9.0 / 16.0  # 9:16 aspect ratio
 
+        # Hysteresis state
+        self.last_roi_center = None
+        self.movement_counter = 0
+
+        # Scene locking state
+        self.locked_roi_center = None
+        self.lock_confidence = 0.0
+        self.frames_in_lock = 0
+
         print(f"[ROICalculator] Ball weight: {self.config.ball_weight}")
         print(f"[ROICalculator] Person weight: {self.config.person_weight}")
+        print(f"[ROICalculator] Hysteresis: {self.config.use_hysteresis} (threshold={self.config.hysteresis_threshold}px)")
+        print(f"[ROICalculator] Scene locking: {self.config.use_scene_locking} (threshold={self.config.lock_threshold}px)")
         print(f"[ROICalculator] Target size: {self.target_width}x{self.target_height}")
 
     def calculate_roi_trajectory(
@@ -330,3 +341,174 @@ class ROICalculator:
             self.calculate_roi_from_detections(fd, frame_width, frame_height)
             for fd in frame_detections_list
         ]
+
+    def apply_hysteresis(
+        self,
+        new_center: Tuple[int, int],
+        confidence: float
+    ) -> Tuple[int, int]:
+        """Apply hysteresis (dead zone) to prevent jittery movement.
+
+        Only updates ROI center when:
+        1. Movement exceeds threshold distance
+        2. Movement persists for min_movement_frames
+
+        Args:
+            new_center: Proposed new ROI center (x, y)
+            confidence: Detection confidence (0-1)
+
+        Returns:
+            Final ROI center after hysteresis (x, y)
+        """
+        if not self.config.use_hysteresis:
+            return new_center
+
+        if self.last_roi_center is None:
+            # First frame - initialize
+            self.last_roi_center = new_center
+            self.movement_counter = 0
+            return new_center
+
+        # Calculate distance from last ROI center
+        dx = new_center[0] - self.last_roi_center[0]
+        dy = new_center[1] - self.last_roi_center[1]
+        distance = np.sqrt(dx**2 + dy**2)
+
+        # Adaptive threshold based on confidence
+        # Lower confidence = larger dead zone (less responsive)
+        if self.config.adaptive_threshold:
+            adaptive_threshold = self.config.hysteresis_threshold * (1.0 / max(confidence, 0.3))
+        else:
+            adaptive_threshold = self.config.hysteresis_threshold
+
+        if distance < adaptive_threshold:
+            # Within dead zone - keep current ROI center
+            self.movement_counter = 0
+            return self.last_roi_center
+        else:
+            # Beyond dead zone - check if movement is sustained
+            self.movement_counter += 1
+
+            if self.movement_counter >= self.config.min_movement_frames:
+                # Confirmed movement - update with smooth transition
+                blend_factor = min(self.movement_counter / 10.0, 1.0)
+                blended_x = int(self.last_roi_center[0] * (1 - blend_factor) + new_center[0] * blend_factor)
+                blended_y = int(self.last_roi_center[1] * (1 - blend_factor) + new_center[1] * blend_factor)
+
+                self.last_roi_center = (blended_x, blended_y)
+                return self.last_roi_center
+            else:
+                # Movement detected but not yet confirmed
+                return self.last_roi_center
+
+    def apply_scene_locking(
+        self,
+        new_center: Tuple[int, int],
+        confidence: float,
+        frame_num: int
+    ) -> Tuple[int, int]:
+        """Apply scene-coherent ROI locking.
+
+        Locks ROI to a region when ball stays in same area.
+        Only unlocks on significant movement.
+
+        Args:
+            new_center: Proposed new ROI center (x, y)
+            confidence: Detection confidence (0-1)
+            frame_num: Current frame number (for logging)
+
+        Returns:
+            Final ROI center after locking (x, y)
+        """
+        if not self.config.use_scene_locking:
+            return new_center
+
+        if self.locked_roi_center is None:
+            # Not locked - initialize
+            self.locked_roi_center = new_center
+            self.lock_confidence = confidence
+            self.frames_in_lock = 1
+            return new_center
+
+        # Check distance from locked center
+        dx = new_center[0] - self.locked_roi_center[0]
+        dy = new_center[1] - self.locked_roi_center[1]
+        distance = np.sqrt(dx**2 + dy**2)
+
+        if distance < self.config.lock_threshold and confidence > 0.3:
+            # Stay in lock - increment counter
+            self.frames_in_lock += 1
+            self.lock_confidence = min(1.0, self.lock_confidence * 1.02)  # Build confidence
+
+            if self.frames_in_lock % 30 == 0:  # Log every second at 30fps
+                print(f"[ROI] Locked to scene (frame {frame_num}, lock_frames={self.frames_in_lock}, distance={distance:.1f})")
+
+            return self.locked_roi_center
+
+        else:
+            # Break lock - significant movement detected
+            if self.frames_in_lock >= self.config.lock_min_frames:
+                print(f"[ROI] Unlocking scene at frame {frame_num} (distance={distance:.1f} > {self.config.lock_threshold})")
+
+            # Gradual transition to new center (10 frames)
+            transition_frames = 10
+            blend = min(1.0, 1.0 / transition_frames)
+            new_center_x = int(self.locked_roi_center[0] * (1 - blend) + new_center[0] * blend)
+            new_center_y = int(self.locked_roi_center[1] * (1 - blend) + new_center[1] * blend)
+
+            self.locked_roi_center = (new_center_x, new_center_y)
+            self.lock_confidence = confidence
+            self.frames_in_lock = 1
+
+            return (new_center_x, new_center_y)
+
+    def reset_lock(self):
+        """Reset scene locking state (call on scene changes)."""
+        if self.locked_roi_center is not None:
+            print("[ROI] Resetting scene lock")
+        self.locked_roi_center = None
+        self.lock_confidence = 0.0
+        self.frames_in_lock = 0
+        self.last_roi_center = None
+        self.movement_counter = 0
+
+    def calculate_roi_with_stabilization(
+        self,
+        ball_pos: Optional[Tuple[int, int]],
+        players: List[Detection],
+        frame_width: int,
+        frame_height: int,
+        frame_num: int = 0
+    ) -> ROI:
+        """Calculate ROI with hysteresis and scene locking applied.
+
+        This is the enhanced version that combines:
+        1. Weighted center calculation
+        2. Hysteresis (dead zone)
+        3. Scene locking
+
+        Args:
+            ball_pos: Ball position (x, y) or None
+            players: List of player detections
+            frame_width: Frame width
+            frame_height: Frame height
+            frame_num: Current frame number
+
+        Returns:
+            ROI object with stabilized center
+        """
+        # Step 1: Calculate raw weighted center
+        raw_center, confidence = self._calculate_weighted_center(
+            ball_pos, players, frame_width, frame_height
+        )
+
+        # Step 2: Apply hysteresis (dead zone)
+        center_after_hysteresis = self.apply_hysteresis(raw_center, confidence)
+
+        # Step 3: Apply scene locking
+        final_center = self.apply_scene_locking(center_after_hysteresis, confidence, frame_num)
+
+        # Step 4: Create ROI with final center
+        roi = self._create_roi(final_center, frame_width, frame_height, confidence)
+
+        return roi

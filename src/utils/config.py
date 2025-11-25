@@ -18,8 +18,8 @@ class VideoConfig:
 @dataclass
 class DetectionConfig:
     """Object detection configuration."""
-    model_path: str = "yolov8n.pt"
-    confidence_threshold: float = 0.3
+    model_path: str = "yolov8m.pt"  # Upgraded from yolov8n.pt for better accuracy
+    confidence_threshold: float = 0.05  # Lowered from 0.3 for higher recall
     iou_threshold: float = 0.45
     target_classes: List[int] = field(default_factory=lambda: [0, 32])  # person, sports ball
     max_detections: int = 300
@@ -38,6 +38,18 @@ class ROIConfig:
     min_roi_size: int = 200  # Minimum ROI size in pixels
     use_smoothing: bool = True
 
+    # Hysteresis parameters (dead zone to prevent jittery camera movement)
+    use_hysteresis: bool = True  # Enable hysteresis-based ROI update
+    hysteresis_threshold: int = 100  # Dead zone radius in pixels
+    min_movement_frames: int = 3  # Frames before confirming movement
+    adaptive_threshold: bool = True  # Scale threshold by confidence
+
+    # Scene locking parameters (lock ROI when ball stays in area)
+    use_scene_locking: bool = True  # Enable scene-coherent ROI locking
+    lock_threshold: int = 150  # Distance to trigger unlock (pixels)
+    lock_min_frames: int = 15  # Minimum frames before establishing lock
+    lock_decay_rate: float = 0.95  # Lock confidence decay per frame
+
 
 @dataclass
 class KalmanConfig:
@@ -45,6 +57,42 @@ class KalmanConfig:
     process_variance: float = 1e-3  # Process noise variance
     measurement_variance: float = 1e-1  # Measurement noise variance
     initial_state_covariance: float = 1.0
+
+
+@dataclass
+class SmootherConfig:
+    """Smoothing configuration."""
+    method: str = "adaptive_ema"  # Options: "kalman", "ema", "adaptive_ema"
+
+    # Kalman parameters (existing)
+    process_variance: float = 1e-3
+    measurement_variance: float = 1e-1
+    initial_state_covariance: float = 1.0
+
+    # EMA parameters
+    ema_alpha: float = 0.1  # Fixed EMA smoothing factor (0-1)
+    ema_alpha_min: float = 0.05  # Adaptive EMA minimum (very smooth)
+    ema_alpha_max: float = 0.25  # Adaptive EMA maximum (fast response)
+
+
+@dataclass
+class SceneDetectionConfig:
+    """Scene detection configuration."""
+    enabled: bool = True
+    method: str = "pyscenedetect"  # Options: "pyscenedetect", "transnetv2", "optical"
+
+    # PySceneDetect parameters
+    adaptive: bool = True  # Use AdaptiveDetector vs ContentDetector
+    threshold: float = 3.0  # Detection sensitivity (lower = more sensitive)
+    min_scene_len: int = 15  # Minimum frames per scene (0.5s at 30fps)
+
+    # TransNetV2 parameters
+    transnet_model_dir: str = "resources/models/transnetv2/"
+    transnet_threshold: float = 0.5  # Probability threshold
+
+    # Optical flow parameters
+    hist_threshold: float = 0.7  # Histogram correlation threshold
+    flow_threshold: float = 15.0  # Optical flow magnitude threshold
 
 
 @dataclass
@@ -85,11 +133,22 @@ class AudioConfig:
 
 
 @dataclass
+class CropperConfig:
+    """Video cropping and letterboxing configuration."""
+    letterbox_top: int = 288  # Top black bar size in pixels (15% of 1920)
+    letterbox_bottom: int = 288  # Bottom black bar size in pixels (15% of 1920)
+    # Note: No horizontal letterbox - width always fills completely (1080px)
+
+
+@dataclass
 class AppConfig:
     """Main application configuration."""
     video: VideoConfig = field(default_factory=VideoConfig)
     detection: DetectionConfig = field(default_factory=DetectionConfig)
     roi: ROIConfig = field(default_factory=ROIConfig)
     kalman: KalmanConfig = field(default_factory=KalmanConfig)
+    smoother: SmootherConfig = field(default_factory=SmootherConfig)
+    scene_detection: SceneDetectionConfig = field(default_factory=SceneDetectionConfig)
     key_player: KeyPlayerConfig = field(default_factory=KeyPlayerConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
+    cropper: CropperConfig = field(default_factory=CropperConfig)

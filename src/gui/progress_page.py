@@ -1,13 +1,18 @@
 """Main page for file selection and editing option selection."""
 
 import os
-from typing import List, Dict
+import logging
+from typing import List, Dict, Optional
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QProgressBar
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer
 from PySide6.QtGui import QFont, QPainter, QPen, QColor
+
+from src.pipeline.pipeline_worker import PipelineWorker
+
+logger = logging.getLogger(__name__)
 
 
 # Constants for styling and configuration
@@ -93,6 +98,11 @@ class ProgressPage(QWidget):
         self.step_progress: list = [0, 0, 0, 0]  # Progress for each step
         self.current_step: int = 0
         self.timer: QTimer = None
+
+        # Pipeline worker
+        self.worker: Optional[PipelineWorker] = None
+        self.current_stage: str = ""
+
         self._setup_ui()
         
     def _setup_ui(self) -> None:
@@ -275,17 +285,17 @@ class ProgressPage(QWidget):
     def set_data(self, file_path: str, option: str) -> None:
         """
         Set the file path and option to display.
-        
+
         Updates the labels with the provided information and logs
         to console for debugging purposes.
-        
+
         Args:
             file_path: Path to the selected video file
             option: Selected editing option
         """
         self.file_path = file_path
         self.option = option
-    
+
         # Log for debugging
         print(f"\n{'=' * 60}")
         print("Process Page Data Received")
@@ -293,21 +303,50 @@ class ProgressPage(QWidget):
         print(f"File Path: {file_path}")
         print(f"Selected Option: {option}")
         print(f"{'=' * 60}\n")
-        
-        # Start fake progress simulation
-        self.start_progress_simulation()
+
+        # Start real pipeline processing
+        self.start_real_processing()
+
+    def start_real_processing(self) -> None:
+        """
+        Start real pipeline processing with PipelineWorker.
+
+        This replaces the fake simulation with actual AI processing.
+        """
+        logger.info(f"Starting real processing: {self.file_path} ({self.option} mode)")
+
+        # Reset progress
+        self.progress = 0
+        self.current_step = 0
+        self.step_progress = [0, 0, 0]
+        self.update_progress_display()
+
+        # Create worker
+        self.worker = PipelineWorker(
+            video_path=self.file_path,
+            mode=self.option
+        )
+
+        # Connect signals
+        self.worker.progress_updated.connect(self._on_progress_updated)
+        self.worker.stage_changed.connect(self._on_stage_changed)
+        self.worker.processing_completed.connect(self._on_processing_completed)
+        self.worker.processing_failed.connect(self._on_processing_failed)
+
+        # Start processing
+        self.worker.start()
 
     def start_progress_simulation(self) -> None:
         """
         Start fake progress simulation with QTimer.
-        
+
         This simulates the AI processing with automatic progress updates.
-        Later, this will be replaced with real AI progress.
+        DEPRECATED: Use start_real_processing() instead.
         """
         self.progress = 0
         self.current_step = 0
         self.step_progress = [0, 0, 0]
-        
+
         # Create and start timer
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_fake_progress)
@@ -405,7 +444,8 @@ class ProgressPage(QWidget):
         - end_time: 종료 시간
         - video_path: 생성된 영상 파일 경로
         """
-        # 테스트용 더미 데이터
+        # DEPRECATED: This is now replaced by real pipeline results
+        # Kept for backwards compatibility
 
         return [
             {
@@ -427,3 +467,96 @@ class ProgressPage(QWidget):
                 'end_time': '06:00'
             }
         ]
+
+    # Real pipeline signal handlers
+
+    @Slot(str, int, str)
+    def _on_progress_updated(self, stage: str, progress: int, message: str) -> None:
+        """Handle progress update from pipeline worker.
+
+        Args:
+            stage: Current processing stage name
+            progress: Overall progress (0-100)
+            message: Detailed progress message
+        """
+        logger.debug(f"Progress: [{progress}%] {stage}: {message}")
+
+        # Update overall progress
+        self.progress = progress
+
+        # Map stage to step index
+        stage_to_step = {
+            "초기화": 0,
+            "OCR 골 감지": 0,
+            "오디오 분석": 1,
+            "해설 분석": 1,
+            "AI 분석": 1,
+            "장면 전환 감지": 2,
+            "후처리": 2,
+            "영상 생성": 2,
+            "완료": 2
+        }
+
+        step_idx = stage_to_step.get(stage, 0)
+        self.current_step = step_idx
+
+        # Update step progress (distribute 0-100 across 3 steps)
+        if progress <= 33:
+            self.step_progress[0] = progress * 3.03
+        elif progress <= 66:
+            self.step_progress[0] = 100
+            self.step_progress[1] = (progress - 33) * 3.03
+        else:
+            self.step_progress[0] = 100
+            self.step_progress[1] = 100
+            self.step_progress[2] = (progress - 66) * 2.97
+
+        # Update UI
+        self.update_progress_display()
+
+    @Slot(str)
+    def _on_stage_changed(self, stage: str) -> None:
+        """Handle stage change from pipeline worker.
+
+        Args:
+            stage: New stage name
+        """
+        logger.info(f"Stage changed: {stage}")
+        self.current_stage = stage
+
+    @Slot(list)
+    def _on_processing_completed(self, highlights: List[Dict]) -> None:
+        """Handle successful completion from pipeline worker.
+
+        Args:
+            highlights: List of highlight dictionaries from pipeline
+        """
+        logger.info(f"Processing completed with {len(highlights)} highlights")
+
+        # Ensure progress is at 100%
+        self.progress = 100
+        self.step_progress = [100, 100, 100]
+        self.update_progress_display()
+
+        # Emit results to SelectPage
+        print("\n" + "=" * 60)
+        print(f"✓ Real Processing Complete! ({len(highlights)} highlights)")
+        print("=" * 60 + "\n")
+
+        self.processing_completed.emit(highlights)
+
+    @Slot(str)
+    def _on_processing_failed(self, error: str) -> None:
+        """Handle processing failure from pipeline worker.
+
+        Args:
+            error: Error message
+        """
+        logger.error(f"Processing failed: {error}")
+
+        print("\n" + "=" * 60)
+        print(f"✗ Processing Failed: {error}")
+        print("=" * 60 + "\n")
+
+        # For now, emit empty results (could show error page instead)
+        self.processing_completed.emit([])

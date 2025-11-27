@@ -1,0 +1,100 @@
+{
+  "video_path": "input/korea_vs_brazil.mp4",
+  "processing_date": "2025-11-13T22:48:11.499063",
+  "baseline_interval_seconds": 2.0,
+  "audio_boost_enabled": false,
+  "total_goals_detected": 7,
+  "goals": [
+    {
+      "frame": 7378,
+      "timestamp": 123.08942882186362,
+      "old_score": [
+        0,
+        0
+      ],
+      "new_score": [
+        0,
+        1
+      ],
+      "team": "away"
+    },
+    {
+      "frame": 11067,
+      "timestamp": 184.63414323279545,
+      "old_score": [
+        0,
+        1
+      ],
+      "new_score": [
+        0,
+        2
+      ],
+      "team": "away"
+    },
+    {
+      "frame": 12614,
+      "timestamp": 210.4432170180249,
+      "old_score": [
+        0,
+        2
+      ],
+      "new_score": [
+        0,
+        1
+      ],
+      "team": "unknown"
+    },
+    {
+      "frame": 21063,
+      "timestamp": 351.4004661527397,
+      "old_score": [
+        0,
+        1
+      ],
+      "new_score": [
+        0,
+        2
+      ],
+      "team": "away"
+    },
+    {
+      "frame": 26299,
+      "timestamp": 438.754254348901,
+      "old_score": [
+        0,
+        2
+      ],
+      "new_score": [
+        0,
+        3
+      ],
+      "team": "away"
+    },
+    {
+      "frame": 29274,
+      "timestamp": 488.3870885512654,
+      "old_score": [
+        0,
+        3
+      ],
+      "new_score": [
+        0,
+        4
+      ],
+      "team": "away"
+    },
+    {
+      "frame": 39032,
+      "timestamp": 651.1827847350205,
+      "old_score": [
+        0,
+        4
+      ],
+      "new_score": [
+        0,
+        5
+      ],
+      "team": "away"
+    }
+  ]
+}

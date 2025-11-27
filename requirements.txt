@@ -141,3 +141,4 @@ uvicorn==0.29.0
 pyngrok==7.1.0
 python-multipart==0.0.9
 nest_asyncio==1.6.0
+tqdm==4.67.1

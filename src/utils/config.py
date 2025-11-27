@@ -18,7 +18,7 @@ class VideoConfig:
 @dataclass
 class DetectionConfig:
     """Object detection configuration."""
-    model_path: str = "yolov8m.pt"  # Upgraded from yolov8n.pt for better accuracy
+    model_path: str = "/Users/eonyak/shortsgenie/best.pt"  # Fine-tuned model (soccer-specific)
     confidence_threshold: float = 0.05  # Lowered from 0.3 for higher recall
     iou_threshold: float = 0.45
     target_classes: List[int] = field(default_factory=lambda: [0, 32])  # person, sports ball
@@ -30,7 +30,7 @@ class DetectionConfig:
     match_thresh: float = 0.8  # IOU threshold for matching
 
     # Detector backend selection
-    detector_backend: str = "footandball"  # Options: "yolo", "soccernet", "footandball"
+    detector_backend: str = "yolo"  # Options: "yolo", "soccernet", "footandball"
 
     # FootAndBall-specific settings
     footandball_model_path: str = None  # Auto-detect from FootAndBall/models/ if None

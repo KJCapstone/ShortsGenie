@@ -183,6 +183,7 @@ class VideoPreviewPage(QWidget):
     
     # Signal
     output_settings_requested = Signal(dict) # 출력하기 버튼 클릭 시 발생
+    back_requested = Signal()  # 뒤로 가기 요청 시 emit
 
     def __init__(self) -> None:
         """Initialize the video preview page."""
@@ -213,24 +214,49 @@ class VideoPreviewPage(QWidget):
         header.setMinimumHeight(HEADER_HEIGHT_MIN)
         header.setMaximumHeight(HEADER_HEIGHT_MAX)
         header.setStyleSheet(f"background-color: {HEADER_BG_COLOR};")
-        
+
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(15, 0, 0, 0)
-        
+        layout.setContentsMargins(10, 0, 20, 0)
+
+        # Back button (left side)
+        self.back_button = QPushButton("← 뒤로")
+        self.back_button.setFixedHeight(35)
+        self.back_button.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-size: 14pt;
+                font-family: Arial;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.1);
+            }
+        """)
+        self.back_button.setCursor(Qt.PointingHandCursor)
+        self.back_button.clicked.connect(self.on_back_button_clicked)
+        layout.addWidget(self.back_button)
+
+        # Spacer
+        layout.addStretch()
+
         # Icon
         icon_label = QLabel("🎬")
         icon_label.setFont(QFont("Arial", 20))
         icon_label.setStyleSheet("border: none; background-color: transparent;")
-        
+
         # Title
         title_label = QLabel("Shorts Genie")
         title_label.setFont(QFont("Arial", 18, QFont.Bold))
         title_label.setStyleSheet("color: white; border: none; background-color: transparent;")
-        
+
         layout.addWidget(icon_label)
         layout.addWidget(title_label)
         layout.addStretch()
-        
+
         return header
     
     def _create_content(self) -> QWidget:
@@ -572,5 +598,10 @@ class VideoPreviewPage(QWidget):
         # 오른쪽 패널의 영상 재생 중지
         if self.media_player:
             self.media_player.stop()
-        
+
         super().hideEvent(event)
+
+    @Slot()
+    def on_back_button_clicked(self) -> None:
+        """Handle back button click."""
+        self.back_requested.emit()

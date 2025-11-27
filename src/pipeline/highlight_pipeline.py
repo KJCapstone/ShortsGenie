@@ -17,7 +17,7 @@ import time
 from src.pipeline.pipeline_config import PipelineConfig, create_config_from_mode
 from src.audio.scoreboard_ocr_detector import ScoreboardOCRDetector, GoalEvent
 from src.audio.highlight_filter import AudioHighlightFilter
-from src.audio.whisper_transcriber import WhisperTranscriber
+from src.audio.faster_whisper_transcriber import FasterWhisperTranscriber
 from src.ai.transcript_analyzer import TranscriptAnalyzer
 from src.scene.scene_classifier import SceneClassifier
 from src.core.video_editor import VideoEditor
@@ -288,10 +288,12 @@ class HighlightPipeline:
         """Process transcript and AI analysis to generate highlights."""
         self._report_progress("해설 분석", base_progress, "음성 인식 중...")
 
-        # Step 1: Whisper transcription
+        # Step 1: Faster-Whisper transcription (3-4x faster than OpenAI Whisper)
         if self._whisper is None:
-            self._whisper = WhisperTranscriber(
+            self._whisper = FasterWhisperTranscriber(
                 model_size=self.config.transcript_analysis.model_size,
+                device="auto",  # Auto-detect CUDA/CPU
+                compute_type="auto",  # int8 for CPU, float16 for GPU
                 language=self.config.transcript_analysis.language
             )
 
@@ -324,6 +326,10 @@ class HighlightPipeline:
 
                 logger.info(f"AI extracted {len(ai_highlights)} highlights")
 
+                # Sort highlights by start time to ensure chronological order
+                ai_highlights = sorted(ai_highlights, key=lambda x: x.get('start', 0))
+                logger.info(f"Sorted highlights chronologically")
+
                 # Convert to Highlight objects
                 for i, ai_hl in enumerate(ai_highlights):
                     # TranscriptAnalyzer returns: {start, end, type, description}
@@ -355,8 +361,12 @@ class HighlightPipeline:
 
             except Exception as e:
                 logger.error(f"Gemini analysis failed: {e}")
+                logger.error(f"Traceback: ", exc_info=True)
+                self.processing_errors.append(f"AI analysis failed: {str(e)}")
+
                 # Fallback: enhance existing highlights if any
                 if self.highlights:
+                    logger.info(f"Enhancing {len(self.highlights)} existing highlights with transcript")
                     for highlight in self.highlights:
                         relevant_transcript = self._get_transcript_for_time(
                             transcript_segments,
@@ -365,6 +375,8 @@ class HighlightPipeline:
                         )
                         if relevant_transcript:
                             highlight.metadata["transcript"] = relevant_transcript
+                else:
+                    logger.warning("No existing highlights to enhance - Gemini failed and no fallback highlights")
 
         self._report_progress("해설 분석", base_progress + 5, f"{len(self.highlights)}개 하이라이트 추출 완료!")
 
@@ -508,7 +520,14 @@ class HighlightPipeline:
                 clip_paths = []
                 for highlight in self.highlights:
                     if hasattr(highlight, 'video_path') and highlight.video_path:
-                        clip_paths.append(Path(highlight.video_path))
+                        clip_path = Path(highlight.video_path)
+                        # Check if file actually exists before adding
+                        if clip_path.exists():
+                            clip_paths.append(clip_path)
+                        else:
+                            logger.warning(f"Clip file not found: {clip_path}")
+
+                logger.info(f"Found {len(clip_paths)} valid clip files out of {len(self.highlights)} highlights")
 
                 if clip_paths:
                     # Merge clips with original audio

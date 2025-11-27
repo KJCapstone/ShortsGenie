@@ -107,7 +107,7 @@ class ReframingConfig(ModuleConfig):
     confidence_threshold: float = 0.05  # Low for high recall
 
     # Detector backend selection
-    detector_backend: str = "footandball"  # Options: "yolo", "soccernet", "footandball"
+    detector_backend: str = "yolo"  # Options: "yolo", "soccernet", "footandball"
 
     # FootAndBall-specific settings (if detector_backend == "footandball")
     footandball_model_path: Optional[str] = None  # Auto-detect if None

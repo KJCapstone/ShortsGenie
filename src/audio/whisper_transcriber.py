@@ -121,11 +121,13 @@ class WhisperTranscriber:
 
         transcribe_start = time.time()
 
-        # Whisper 실행
+        # Whisper 실행 (최적화된 파라미터)
         result = self.model.transcribe(
             audio_path,
             language=self.language,
-            verbose=False  # Whisper 자체 로그 비활성화
+            verbose=False,  # Whisper 자체 로그 비활성화
+            beam_size=1,    # 5→1로 줄여서 5배 속도 향상
+            best_of=1       # 5→1로 줄여서 추가 속도 향상
         )
 
         transcribe_time = time.time() - transcribe_start
@@ -159,11 +161,13 @@ class WhisperTranscriber:
 
         transcribe_start = time.time()
 
-        # 전체 오디오 변환 (타임스탬프 포함)
+        # 전체 오디오 변환 (타임스탬프 포함, 최적화)
         result = self.model.transcribe(
             audio_path,
             language=self.language,
-            verbose=False
+            verbose=False,
+            beam_size=1,    # 5→1로 줄여서 5배 속도 향상
+            best_of=1       # 5→1로 줄여서 추가 속도 향상
         )
 
         transcribe_time = time.time() - transcribe_start

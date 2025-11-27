@@ -73,11 +73,9 @@ __pycache__/
 venv/
 .venv/
 
-<<<<<<< HEAD
 *.json
 *.csv
 !dataset.csv
-=======
 
 # 사용자 지정 가상환경 이름
 soccer-env/
@@ -97,4 +95,3 @@ transcript_result.json
 
 # 임시 생성 파일들
 temp_*
->>>>>>> main

@@ -8,6 +8,7 @@ This module implements a Strategy pattern-based pipeline that can:
 """
 
 import logging
+import subprocess
 from pathlib import Path
 from typing import List, Dict, Optional, Callable, Any, Tuple
 from dataclasses import dataclass
@@ -397,8 +398,27 @@ class HighlightPipeline:
             self._video_editor = VideoEditor()
 
         if self._reframing_pipeline is None and self.config.reframing.enabled:
+            # Create AppConfig with current pipeline settings
             app_config = AppConfig()
             app_config.detection.confidence_threshold = self.config.reframing.confidence_threshold
+
+            # Pass through detector backend from reframing config
+            # This allows FootAndBall or other detector backends to be used
+            if hasattr(self.config.reframing, 'detector_backend'):
+                app_config.detection.detector_backend = self.config.reframing.detector_backend
+
+                # If using FootAndBall, pass through its specific settings
+                if self.config.reframing.detector_backend == "footandball":
+                    app_config.detection.footandball_model_path = getattr(
+                        self.config.reframing, 'footandball_model_path', None
+                    )
+                    app_config.detection.footandball_ball_threshold = getattr(
+                        self.config.reframing, 'footandball_ball_threshold', 0.5
+                    )
+                    app_config.detection.footandball_player_threshold = getattr(
+                        self.config.reframing, 'footandball_player_threshold', 0.5
+                    )
+
             self._reframing_pipeline = ReframingPipeline(app_config)
 
         # Initialize scene classifier if enabled
@@ -474,6 +494,46 @@ class HighlightPipeline:
             except Exception as e:
                 logger.error(f"Failed to generate clip {i+1}: {e}")
                 self.processing_errors.append(f"Clip {i+1} generation failed")
+
+        # Step 4: Merge all clips into single shorts video with audio
+        if self.config.reframing.enabled and len(self.highlights) > 0:
+            self._report_progress(
+                "최종 병합",
+                99,
+                f"{len(self.highlights)}개 클립을 하나로 병합 중..."
+            )
+
+            try:
+                # Collect all generated clip paths
+                clip_paths = []
+                for highlight in self.highlights:
+                    if hasattr(highlight, 'video_path') and highlight.video_path:
+                        clip_paths.append(Path(highlight.video_path))
+
+                if clip_paths:
+                    # Merge clips with original audio
+                    final_shorts = self._merge_clips_to_final_shorts(
+                        clip_paths,
+                        self.video_path
+                    )
+
+                    logger.info(f"✅ Final shorts video created: {final_shorts}")
+
+                    # Update first highlight to point to final merged video
+                    # (for backward compatibility with existing code)
+                    self.highlights[0].video_path = str(final_shorts)
+
+                    # Clean up individual clips
+                    for clip_path in clip_paths:
+                        try:
+                            clip_path.unlink()
+                            logger.info(f"Cleaned up temporary clip: {clip_path}")
+                        except Exception as e:
+                            logger.warning(f"Failed to delete temp clip {clip_path}: {e}")
+
+            except Exception as e:
+                logger.error(f"Failed to merge clips: {e}")
+                self.processing_errors.append("Clip merging failed")
 
     # Helper methods
 
@@ -594,6 +654,101 @@ class HighlightPipeline:
                 end = segment.get('end', 0)
                 text = segment.get('text', '')
                 f.write(f"[{start:.2f}s - {end:.2f}s] {text}\n")
+
+    def _merge_clips_to_final_shorts(self, clip_paths: List[Path], original_video_path: Path) -> Path:
+        """Merge multiple highlight clips into single shorts video with original audio.
+
+        Args:
+            clip_paths: List of individual vertical clips (no audio)
+            original_video_path: Original video path for audio extraction
+
+        Returns:
+            Path to final merged shorts video (1-3 minutes) with audio
+        """
+        if not clip_paths:
+            raise ValueError("No clips to merge")
+
+        logger.info(f"Merging {len(clip_paths)} clips into final shorts video")
+
+        # Create concat file list for FFmpeg
+        concat_file = self.config.temp_dir / "concat_list.txt"
+        with open(concat_file, 'w', encoding='utf-8') as f:
+            for clip in clip_paths:
+                # FFmpeg concat requires absolute paths
+                f.write(f"file '{clip.absolute()}'\n")
+
+        # Step 1: Concat video clips (no audio yet)
+        temp_video = self.config.temp_dir / "merged_video_only.mp4"
+        concat_cmd = [
+            'ffmpeg', '-y',
+            '-f', 'concat',
+            '-safe', '0',
+            '-i', str(concat_file),
+            '-c', 'copy',  # No re-encoding for speed
+            str(temp_video)
+        ]
+
+        logger.info("Concatenating video clips...")
+        subprocess.run(concat_cmd, check=True, capture_output=True)
+
+        # Step 2: Extract audio from original video matching highlight timestamps
+        # For simplicity, we'll extract audio from the same time ranges and concat
+        temp_audios = []
+        for i, highlight in enumerate(self.highlights[:len(clip_paths)]):
+            audio_file = self.config.temp_dir / f"audio_{i}.aac"
+            extract_audio_cmd = [
+                'ffmpeg', '-y',
+                '-i', str(original_video_path),
+                '-ss', str(highlight.start_time),
+                '-t', str(highlight.end_time - highlight.start_time),
+                '-vn',  # No video
+                '-acodec', 'copy',
+                str(audio_file)
+            ]
+            subprocess.run(extract_audio_cmd, check=True, capture_output=True)
+            temp_audios.append(audio_file)
+
+        # Step 3: Concat audio files
+        audio_concat_file = self.config.temp_dir / "audio_concat_list.txt"
+        with open(audio_concat_file, 'w', encoding='utf-8') as f:
+            for audio in temp_audios:
+                f.write(f"file '{audio.absolute()}'\n")
+
+        temp_audio = self.config.temp_dir / "merged_audio.aac"
+        audio_concat_cmd = [
+            'ffmpeg', '-y',
+            '-f', 'concat',
+            '-safe', '0',
+            '-i', str(audio_concat_file),
+            '-c', 'copy',
+            str(temp_audio)
+        ]
+        subprocess.run(audio_concat_cmd, check=True, capture_output=True)
+
+        # Step 4: Combine video + audio
+        output_path = self.config.output_dir / "final_shorts.mp4"
+        combine_cmd = [
+            'ffmpeg', '-y',
+            '-i', str(temp_video),
+            '-i', str(temp_audio),
+            '-c:v', 'copy',  # Copy video stream
+            '-c:a', 'aac',   # Re-encode audio to ensure compatibility
+            '-b:a', '128k',  # Audio bitrate
+            '-shortest',     # Match shortest stream
+            str(output_path)
+        ]
+
+        logger.info("Combining video and audio...")
+        subprocess.run(combine_cmd, check=True, capture_output=True)
+
+        # Cleanup temp files
+        temp_video.unlink(missing_ok=True)
+        temp_audio.unlink(missing_ok=True)
+        for audio in temp_audios:
+            audio.unlink(missing_ok=True)
+
+        logger.info(f"✅ Final shorts created: {output_path}")
+        return output_path
 
 
 # Convenience function for simple usage

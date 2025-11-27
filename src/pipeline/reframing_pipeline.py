@@ -103,10 +103,25 @@ class ReframingPipeline:
 
         # Step 1: Initialize components
         print("[Step 1/6] Initializing components...")
-        if use_soccernet_model:
+
+        # Initialize detector based on config backend
+        backend = self.config.detection.detector_backend
+
+        if backend == "footandball":
+            from src.core.footandball_detector import FootAndBallDetector
+            detector = FootAndBallDetector(
+                model_path=self.config.detection.footandball_model_path,
+                ball_threshold=self.config.detection.footandball_ball_threshold,
+                player_threshold=self.config.detection.footandball_player_threshold,
+                device=None  # Auto-detect (MPS/CUDA/CPU)
+            )
+            print(f"[Pipeline] Using FootAndBall detector")
+        elif backend == "soccernet" or use_soccernet_model:
             detector = SoccerNetDetector(self.config.detection)
-        else:
+            print(f"[Pipeline] Using SoccerNet YOLO detector")
+        else:  # backend == "yolo"
             detector = ObjectDetector(self.config.detection)
+            print(f"[Pipeline] Using generic YOLO detector")
 
         if use_temporal_filter:
             temporal_filter = TemporalBallFilter()
@@ -152,12 +167,14 @@ class ReframingPipeline:
                     scene_manager = None
 
             for frame_num, frame in enumerate(reader):
-                if use_soccernet_model and hasattr(detector, 'detect_frame_multi_ball'):
+                # All detectors now have the same interface
+                if hasattr(detector, 'detect_frame_multi_ball'):
+                    # SoccerNet-specific multi-ball detection
                     balls, players = detector.detect_frame_multi_ball(
                         frame, frame_num, frame_num / fps
                     )
                 else:
-                    # Fallback for generic detector
+                    # Generic interface: works for YOLO, SoccerNet (single-ball mode), and FootAndBall
                     frame_detections = detector.detect_frame(frame, frame_num, frame_num / fps)
                     balls = frame_detections.ball_detections
                     players = frame_detections.person_detections

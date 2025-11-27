@@ -29,6 +29,14 @@ class DetectionConfig:
     track_thresh: float = 0.5  # High confidence threshold
     match_thresh: float = 0.8  # IOU threshold for matching
 
+    # Detector backend selection
+    detector_backend: str = "footandball"  # Options: "yolo", "soccernet", "footandball"
+
+    # FootAndBall-specific settings
+    footandball_model_path: str = None  # Auto-detect from FootAndBall/models/ if None
+    footandball_ball_threshold: float = 0.5  # Ball detection threshold
+    footandball_player_threshold: float = 0.5  # Player detection threshold
+
 
 @dataclass
 class ROIConfig:
@@ -40,8 +48,8 @@ class ROIConfig:
 
     # Hysteresis parameters (dead zone to prevent jittery camera movement)
     use_hysteresis: bool = True  # Enable hysteresis-based ROI update
-    hysteresis_threshold: int = 100  # Dead zone radius in pixels
-    min_movement_frames: int = 3  # Frames before confirming movement
+    hysteresis_threshold: int = 150  # Dead zone radius in pixels (increased from 100)
+    min_movement_frames: int = 5  # Frames before confirming movement (increased from 3)
     adaptive_threshold: bool = True  # Scale threshold by confidence
 
     # Scene locking parameters (lock ROI when ball stays in area)
@@ -92,8 +100,8 @@ class SmootherConfig:
 
     # EMA parameters
     ema_alpha: float = 0.1  # Fixed EMA smoothing factor (0-1)
-    ema_alpha_min: float = 0.05  # Adaptive EMA minimum (very smooth)
-    ema_alpha_max: float = 0.25  # Adaptive EMA maximum (fast response)
+    ema_alpha_min: float = 0.03  # Adaptive EMA minimum (very smooth, reduced from 0.05)
+    ema_alpha_max: float = 0.20  # Adaptive EMA maximum (fast response, reduced from 0.25)
 
 
 @dataclass
@@ -164,7 +172,7 @@ class CropperConfig:
 @dataclass
 class SceneConfig:
     """Scene awareness configuration for dynamic reframing."""
-    enabled: bool = False  # Opt-in (disabled by default for backward compatibility)
+    enabled: bool = True  # Scene-aware ROI for stability (enabled by default)
 
     # Scene metadata source
     use_auto_tagger: bool = True  # Use auto_tagger ResNet-18 model

@@ -39,7 +39,8 @@ class WhisperTranscriber:
         verbose: bool = True
     ):
         self.model_size = model_size
-        self.language = language
+        # "auto"를 None으로 변환 (Whisper는 None일 때 자동 감지)
+        self.language = None if language == "auto" else language
         self.verbose = verbose
 
         # 디바이스 자동 감지

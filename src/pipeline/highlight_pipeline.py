@@ -9,7 +9,7 @@ This module implements a Strategy pattern-based pipeline that can:
 
 import logging
 from pathlib import Path
-from typing import List, Dict, Optional, Callable, Any
+from typing import List, Dict, Optional, Callable, Any, Tuple
 from dataclasses import dataclass
 import time
 
@@ -18,7 +18,7 @@ from src.audio.scoreboard_ocr_detector import ScoreboardOCRDetector, GoalEvent
 from src.audio.highlight_filter import AudioHighlightFilter
 from src.audio.whisper_transcriber import WhisperTranscriber
 from src.ai.transcript_analyzer import TranscriptAnalyzer
-from src.core.scene_detector import SceneDetector
+from src.scene.scene_classifier import SceneClassifier
 from src.core.video_editor import VideoEditor
 from src.pipeline.reframing_pipeline import ReframingPipeline
 from src.utils.config import AppConfig
@@ -97,6 +97,7 @@ class HighlightPipeline:
         self._whisper = None
         self._transcript_analyzer = None
         self._scene_detector = None
+        self._scene_classifier = None
         self._video_editor = None
         self._reframing_pipeline = None
 
@@ -194,7 +195,11 @@ class HighlightPipeline:
         elif module_name == "transcript_analysis":
             self._process_transcript_analysis(base_progress)
         elif module_name == "scene_detection":
-            self._process_scene_detection(base_progress)
+            # Old PySceneDetect module - now handled per-clip with SceneClassifier
+            logger.info("Scene detection now handled per-clip during reframing")
+        elif module_name == "scene_classification":
+            # Scene classification happens per-clip in _generate_final_clips()
+            logger.info("Scene classification will be applied during clip generation")
         elif module_name == "reframing":
             # Reframing happens in post-processing after clips are selected
             logger.info("Reframing will be applied during clip generation")
@@ -289,8 +294,15 @@ class HighlightPipeline:
                 language=self.config.transcript_analysis.language
             )
 
-        transcript_segments = self._whisper.transcribe(str(self.video_path))
-        logger.info(f"Transcribed {len(transcript_segments)} segments")
+        whisper_result = self._whisper.transcribe(str(self.video_path))
+
+        # Whisper returns dict with 'segments', 'text', 'language'
+        if isinstance(whisper_result, dict) and 'segments' in whisper_result:
+            transcript_segments = whisper_result['segments']
+            logger.info(f"Transcribed {len(transcript_segments)} segments")
+        else:
+            logger.error(f"Unexpected Whisper result format: {type(whisper_result)}")
+            raise ValueError("Whisper transcription failed")
 
         # Save transcript to temp file for TranscriptAnalyzer
         temp_transcript_path = self.config.temp_dir / "transcript.txt"
@@ -355,26 +367,6 @@ class HighlightPipeline:
 
         self._report_progress("해설 분석", base_progress + 5, f"{len(self.highlights)}개 하이라이트 추출 완료!")
 
-    def _process_scene_detection(self, base_progress: int) -> None:
-        """Process scene boundary detection."""
-        self._report_progress("장면 전환 감지", base_progress, "장면 경계 분석 중...")
-
-        if self._scene_detector is None:
-            self._scene_detector = SceneDetector(
-                method=self.config.scene_detection.method,
-                threshold=self.config.scene_detection.threshold
-            )
-
-        scenes = self._scene_detector.detect_scenes(str(self.video_path))
-
-        logger.info(f"Detected {len(scenes)} scene transitions")
-
-        # Use scenes to refine highlight boundaries
-        for highlight in self.highlights:
-            self._align_to_scene_boundaries(highlight, scenes)
-
-        self._report_progress("장면 전환 감지", base_progress + 5, f"{len(scenes)}개 장면 감지!")
-
     def _post_process_highlights(self) -> None:
         """Post-process highlights: merge, filter, rank."""
         if not self.highlights:
@@ -409,6 +401,18 @@ class HighlightPipeline:
             app_config.detection.confidence_threshold = self.config.reframing.confidence_threshold
             self._reframing_pipeline = ReframingPipeline(app_config)
 
+        # Initialize scene classifier if enabled
+        if self.config.scene_classification.enabled and self._scene_classifier is None:
+            try:
+                self._scene_classifier = SceneClassifier(self.config.scene_classification)
+                logger.info("Scene classifier initialized successfully")
+            except FileNotFoundError as e:
+                logger.error(f"Scene classifier model not found: {e}")
+                self.config.scene_classification.enabled = False
+            except Exception as e:
+                logger.error(f"Failed to initialize scene classifier: {e}")
+                self.config.scene_classification.enabled = False
+
         for i, highlight in enumerate(self.highlights):
             try:
                 logger.info(f"Generating clip {i+1}/{len(self.highlights)}")
@@ -422,16 +426,43 @@ class HighlightPipeline:
                     highlight.end_time
                 )
 
-                # Step 2: Apply reframing if enabled
+                # Step 2: Run scene classification on extracted clip
+                scene_json_path = None
+                if self.config.scene_classification.enabled:
+                    self._report_progress(
+                        "장면 분류",
+                        95 + int(i / len(self.highlights) * 2.5),
+                        f"클립 {i+1} 장면 분석 중..."
+                    )
+
+                    scene_json_path = self.config.temp_dir / f"clip_{i}_scenes.json"
+                    try:
+                        scene_metadata = self._scene_classifier.classify_clip(
+                            str(temp_clip),
+                            output_json_path=str(scene_json_path)
+                        )
+                        logger.info(f"Classified {len(scene_metadata.segments)} scenes in clip {i+1}")
+                    except Exception as e:
+                        logger.warning(f"Scene classification failed for clip {i+1}: {e}")
+                        scene_json_path = None  # Fallback to dynamic ROI
+
+                # Step 3: Apply reframing with scene metadata
                 if self.config.reframing.enabled:
                     output_clip = self.config.output_dir / f"highlight_{i+1}_vertical.mp4"
+
+                    self._report_progress(
+                        "영상 생성",
+                        97 + int(i / len(self.highlights) * 3),
+                        f"클립 {i+1} 리프레이밍 중..."
+                    )
 
                     self._reframing_pipeline.process_goal_clip(
                         clip_path=str(temp_clip),
                         output_path=str(output_clip),
                         use_soccernet_model=self.config.reframing.use_soccernet_model,
                         use_temporal_filter=self.config.reframing.use_temporal_filter,
-                        use_kalman_smoothing=self.config.reframing.use_kalman_smoothing
+                        use_kalman_smoothing=self.config.reframing.use_kalman_smoothing,
+                        scene_metadata_path=str(scene_json_path) if scene_json_path else None
                     )
 
                     highlight.video_path = str(output_clip)
@@ -485,15 +516,6 @@ class HighlightPipeline:
         ]
         return " ".join(relevant)
 
-    def _align_to_scene_boundaries(self, highlight: Highlight, scenes: List[tuple]) -> None:
-        """Adjust highlight boundaries to align with scene transitions."""
-        for scene_start, scene_end in scenes:
-            # If highlight falls within a scene, align to scene boundaries
-            if scene_start <= highlight.start_time <= scene_end:
-                highlight.start_time = scene_start
-            if scene_start <= highlight.end_time <= scene_end:
-                highlight.end_time = scene_end
-
     def _merge_overlapping_highlights(self, highlights: List[Highlight]) -> List[Highlight]:
         """Merge overlapping highlights."""
         if not highlights:
@@ -523,36 +545,35 @@ class HighlightPipeline:
         return start1 <= end2 and start2 <= end1
 
     def _create_dummy_highlights(self) -> None:
-        """Create dummy highlights for testing when no modules are enabled.
+        """Create single dummy highlight when no modules extracted highlights.
 
-        This generates 3 sample highlights at different time points in the video.
-        Used for testing the pipeline flow without actual detection modules.
+        This generates 1 sample highlight from the video.
+        Used as fallback when all extraction modules fail.
         """
-        logger.info("Creating 3 dummy highlights for testing")
+        logger.info("Creating 1 dummy highlight as fallback")
+
+        # Get video duration to create appropriate clip length
+        try:
+            import cv2
+            cap = cv2.VideoCapture(str(self.video_path))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            duration = frame_count / fps if fps > 0 else 60.0
+            cap.release()
+        except Exception as e:
+            logger.warning(f"Could not get video duration: {e}")
+            duration = 60.0
+
+        # Create single highlight (max 60s)
+        end_time = min(duration, 60.0)
 
         dummy_highlights = [
             Highlight(
-                title="🎯 테스트 하이라이트 #1",
-                description="영상 초반부 (10-40초)",
-                start_time=10.0,
-                end_time=40.0,
-                score=0.9,
-                source="dummy"
-            ),
-            Highlight(
-                title="🎯 테스트 하이라이트 #2",
-                description="영상 중반부 (60-90초)",
-                start_time=60.0,
-                end_time=90.0,
-                score=0.85,
-                source="dummy"
-            ),
-            Highlight(
-                title="🎯 테스트 하이라이트 #3",
-                description="영상 후반부 (120-150초)",
-                start_time=120.0,
-                end_time=150.0,
-                score=0.8,
+                title="⚽ 전체 영상 하이라이트",
+                description=f"영상 전체 (0-{int(end_time)}초)",
+                start_time=0.0,
+                end_time=end_time,
+                score=0.5,
                 source="dummy"
             ),
         ]

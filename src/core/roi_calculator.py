@@ -50,7 +50,8 @@ class ROICalculator:
         player_detections_per_frame: Dict[int, List[Detection]],
         frame_width: int,
         frame_height: int,
-        total_frames: int
+        total_frames: int,
+        scene_manager: Optional['SceneManager'] = None
     ) -> List[ROI]:
         """Calculate ROI for each frame using ball and player positions.
 
@@ -60,38 +61,62 @@ class ROICalculator:
             frame_width: Original video width
             frame_height: Original video height
             total_frames: Total number of frames
+            scene_manager: Optional scene manager for scene-aware ROI calculation
 
         Returns:
             List of ROI objects, one per frame
         """
         roi_list = []
 
-        for frame_num in range(total_frames):
-            # Get ball position (may be interpolated)
-            ball_pos = ball_trajectory.get_position(frame_num)
+        # Scene-aware feature: fixed ROI per scene
+        current_scene_roi = None  # ROI for current scene (locked)
+        scene_roi_frames = 30      # Number of frames to analyze at scene start
 
-            # Get top player positions
+        for frame_num in range(total_frames):
+            # Check for scene boundary (scene-aware feature)
+            if scene_manager:
+                scene_info = scene_manager.update(frame_num)
+
+                if scene_info['is_boundary']:
+                    # New scene started - reset ROI state
+                    self.reset_for_scene_boundary(scene_info)
+                    current_scene_roi = None  # Force recalculation
+
+                    # Apply scene-specific weights if enabled
+                    if self.config.use_scene_type_weights:
+                        self._apply_scene_weights(scene_info['scene_type'])
+
+                # If we have a scene manager and no fixed ROI yet, calculate it
+                if current_scene_roi is None:
+                    # Calculate ROI from first N frames of this scene
+                    scene = scene_info.get('scene')
+                    if scene:
+                        current_scene_roi = self._calculate_scene_fixed_roi(
+                            ball_trajectory,
+                            player_detections_per_frame,
+                            frame_width,
+                            frame_height,
+                            scene.start_frame,
+                            min(scene.end_frame, scene.start_frame + scene_roi_frames)
+                        )
+                        print(f"[ROI] Fixed ROI calculated for scene at frame {frame_num}: "
+                              f"center=({current_scene_roi.center_x}, {current_scene_roi.center_y})")
+
+                # Use fixed ROI for this scene
+                if current_scene_roi is not None:
+                    roi_list.append(current_scene_roi)
+                    continue
+
+            # No scene manager OR no scene data - use dynamic ROI (original behavior)
+            ball_pos = ball_trajectory.get_position(frame_num)
             players = self._get_top_players(
                 player_detections_per_frame.get(frame_num, []),
                 max_players=5
             )
-
-            # Calculate weighted center
             roi_center, confidence = self._calculate_weighted_center(
-                ball_pos,
-                players,
-                frame_width,
-                frame_height
+                ball_pos, players, frame_width, frame_height
             )
-
-            # Create ROI with bounds checking
-            roi = self._create_roi(
-                roi_center,
-                frame_width,
-                frame_height,
-                confidence
-            )
-
+            roi = self._create_roi(roi_center, frame_width, frame_height, confidence)
             roi_list.append(roi)
 
         return roi_list
@@ -471,6 +496,113 @@ class ROICalculator:
         self.frames_in_lock = 0
         self.last_roi_center = None
         self.movement_counter = 0
+
+    def reset_for_scene_boundary(self, scene_info: dict):
+        """Reset ROI state when entering a new scene.
+
+        This method is called when a scene boundary is detected to prevent
+        ROI state from the previous scene affecting the new scene.
+
+        Args:
+            scene_info: Scene information dictionary containing:
+                - scene_type: Type of the new scene
+                - frame_num: Frame number of the boundary
+                - is_boundary: True (always)
+        """
+        # Reset all ROI state
+        self.last_roi_center = None
+        self.movement_counter = 0
+        self.locked_roi_center = None
+        self.lock_confidence = 0.0
+        self.frames_in_lock = 0
+
+        scene_type = scene_info.get('scene_type', 'unknown')
+        frame_num = scene_info.get('frame_num', '?')
+        print(f"[ROI] Scene boundary at frame {frame_num}: '{scene_type}' (ROI state reset)")
+
+    def _apply_scene_weights(self, scene_type: str):
+        """Apply scene-specific ROI weights dynamically.
+
+        This method temporarily updates the ROI weights based on the scene type.
+        Weights are restored to defaults when the scene changes.
+
+        Args:
+            scene_type: Scene type label ("wide", "close", "audience", "replay")
+        """
+        if scene_type not in self.config.scene_type_weights:
+            # Unknown scene type, keep default weights
+            return
+
+        weights = self.config.scene_type_weights[scene_type]
+
+        # Update ball and person weights
+        self.config.ball_weight = weights.get('ball_weight', 3.0)
+        self.config.person_weight = weights.get('person_weight', 1.0)
+
+        # Note: We could also adjust other parameters like lock_threshold here
+        # but for now we only modify the core ROI weights
+
+    def _calculate_scene_fixed_roi(
+        self,
+        ball_trajectory: BallTrajectory,
+        player_detections_per_frame: Dict[int, List[Detection]],
+        frame_width: int,
+        frame_height: int,
+        start_frame: int,
+        end_frame: int
+    ) -> ROI:
+        """Calculate a fixed ROI for an entire scene based on initial frames.
+
+        This analyzes the first N frames of a scene to determine the optimal
+        fixed ROI that will be used for the entire scene.
+
+        Args:
+            ball_trajectory: Ball trajectory
+            player_detections_per_frame: Player detections by frame
+            frame_width: Frame width
+            frame_height: Frame height
+            start_frame: Scene start frame
+            end_frame: Frame to analyze until (usually start + 30)
+
+        Returns:
+            Fixed ROI to use for entire scene
+        """
+        # Collect all ball and player positions in the analysis window
+        all_positions = []
+        all_weights = []
+
+        for frame_num in range(start_frame, end_frame):
+            # Get ball position
+            ball_pos = ball_trajectory.get_position(frame_num)
+            if ball_pos is not None:
+                all_positions.append(ball_pos)
+                all_weights.append(self.config.ball_weight)
+
+            # Get player positions
+            players = self._get_top_players(
+                player_detections_per_frame.get(frame_num, []),
+                max_players=5
+            )
+            for player in players:
+                all_positions.append((player.bbox.center_x, player.bbox.center_y))
+                all_weights.append(self.config.person_weight)
+
+        # If no detections, use frame center
+        if not all_positions:
+            center = (frame_width // 2, frame_height // 2)
+            confidence = 0.0
+        else:
+            # Calculate weighted average of all positions
+            total_weight = sum(all_weights)
+            weighted_x = sum(pos[0] * w for pos, w in zip(all_positions, all_weights)) / total_weight
+            weighted_y = sum(pos[1] * w for pos, w in zip(all_positions, all_weights)) / total_weight
+            center = (int(weighted_x), int(weighted_y))
+            confidence = min(1.0, len(all_positions) / (end_frame - start_frame))
+
+        # Create fixed ROI
+        roi = self._create_roi(center, frame_width, frame_height, confidence)
+
+        return roi
 
     def calculate_roi_with_stabilization(
         self,

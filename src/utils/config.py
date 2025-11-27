@@ -1,7 +1,7 @@
 """Configuration management for the application."""
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Dict
 
 
 @dataclass
@@ -49,6 +49,27 @@ class ROIConfig:
     lock_threshold: int = 150  # Distance to trigger unlock (pixels)
     lock_min_frames: int = 15  # Minimum frames before establishing lock
     lock_decay_rate: float = 0.95  # Lock confidence decay per frame
+
+    # Scene-aware ROI parameters
+    use_scene_type_weights: bool = False  # Apply different weights per scene type
+    scene_type_weights: Dict[str, Dict[str, float]] = field(default_factory=lambda: {
+        'wide': {
+            'ball_weight': 4.0,      # Focus on ball in wide shots
+            'person_weight': 0.8,
+        },
+        'close': {
+            'ball_weight': 3.0,      # Balanced framing
+            'person_weight': 1.2,
+        },
+        'audience': {
+            'ball_weight': 0.0,      # No ball expected in audience shots
+            'person_weight': 2.0,
+        },
+        'replay': {
+            'ball_weight': 5.0,      # Maximum focus on ball in replays
+            'person_weight': 0.5,
+        }
+    })
 
 
 @dataclass
@@ -141,6 +162,23 @@ class CropperConfig:
 
 
 @dataclass
+class SceneConfig:
+    """Scene awareness configuration for dynamic reframing."""
+    enabled: bool = False  # Opt-in (disabled by default for backward compatibility)
+
+    # Scene metadata source
+    use_auto_tagger: bool = True  # Use auto_tagger ResNet-18 model
+    auto_tagger_model_path: str = "auto_tagger/model/soccer_model.pth"
+
+    # Fallback to PySceneDetect if auto_tagger unavailable
+    fallback_to_pyscenedetect: bool = True
+
+    # Scene validation
+    min_scene_duration: float = 0.5  # Minimum scene length in seconds
+    validate_on_load: bool = True  # Validate metadata when loading
+
+
+@dataclass
 class AppConfig:
     """Main application configuration."""
     video: VideoConfig = field(default_factory=VideoConfig)
@@ -149,6 +187,7 @@ class AppConfig:
     kalman: KalmanConfig = field(default_factory=KalmanConfig)
     smoother: SmootherConfig = field(default_factory=SmootherConfig)
     scene_detection: SceneDetectionConfig = field(default_factory=SceneDetectionConfig)
+    scene: SceneConfig = field(default_factory=SceneConfig)
     key_player: KeyPlayerConfig = field(default_factory=KeyPlayerConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
     cropper: CropperConfig = field(default_factory=CropperConfig)

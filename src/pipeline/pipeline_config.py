@@ -56,7 +56,7 @@ class TranscriptAnalysisConfig(ModuleConfig):
 
     # Whisper settings
     model_size: str = "base"  # tiny, base, small, medium, large
-    language: str = "ko"  # Korean commentary
+    language: str = "auto"  # Auto-detect language (supports 99 languages)
 
     # AI analysis
     use_gemini: bool = True
@@ -72,6 +72,28 @@ class SceneDetectionConfig(ModuleConfig):
     method: str = "pyscenedetect"  # pyscenedetect, transnetv2
     threshold: float = 3.0
     min_scene_len: int = 15
+
+
+@dataclass
+class SceneClassificationConfig(ModuleConfig):
+    """Auto_tagger ResNet18 scene classification configuration."""
+    enabled: bool = True
+    priority: int = 5  # After highlight extraction, before reframing
+
+    # Model settings
+    model_path: str = "resources/models/scene_classifier/soccer_model_ver2.pth"
+    device: str = "auto"  # auto, mps, cuda, cpu
+
+    # PySceneDetect parameters (for boundary detection)
+    threshold: float = 27.0  # ContentDetector threshold
+    min_scene_len: int = 15  # Minimum frames per scene
+
+    # Classification parameters
+    min_scene_duration: float = 0.5  # Skip very short scenes
+
+    # Output settings
+    save_json: bool = True
+    json_output_dir: str = "output/scene_metadata"
 
 
 @dataclass
@@ -121,6 +143,7 @@ class PipelineConfig:
     audio_analysis: AudioAnalysisConfig = field(default_factory=AudioAnalysisConfig)
     transcript_analysis: TranscriptAnalysisConfig = field(default_factory=TranscriptAnalysisConfig)
     scene_detection: SceneDetectionConfig = field(default_factory=SceneDetectionConfig)
+    scene_classification: SceneClassificationConfig = field(default_factory=SceneClassificationConfig)
     reframing: ReframingConfig = field(default_factory=ReframingConfig)
     video_editing: VideoEditingConfig = field(default_factory=VideoEditingConfig)
 
@@ -162,7 +185,10 @@ class PipelineConfig:
         config.transcript_analysis.enabled = True  # Whisper + Gemini
         config.reframing.enabled = True
 
-        # Disable optional modules for speed
+        # Enable scene classification for scene-aware ROI
+        config.scene_classification.enabled = True
+
+        # Disable old scene detection module
         config.scene_detection.enabled = False
 
         # Goal-specific parameters

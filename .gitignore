@@ -70,3 +70,7 @@ __pycache__/
 # === Local envs ===
 venv/
 .venv/
+
+*.json
+*.csv
+!dataset.csv

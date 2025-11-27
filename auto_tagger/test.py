@@ -11,18 +11,20 @@ import pandas as pd
 import json  # <--- JSON 라이브러리 추가
 
 # ================= [설정값] =================
-INPUT_VIDEO = "test.mp4"         # 분석할 영상
-MODEL_PATH = "C:\\Users\\home\\Desktop\\shortsgenie\\ShortsGenie\\auto_tagger\\model\\soccer_model.pth" # 학습된 모델 경로
+# app/ 디렉토리에서 실행
+INPUT_VIDEO = "input/30s_vid.mp4"  # 분석할 영상
+MODEL_PATH = "auto_tagger/soccer_model_ver2.pth"  # 학습된 모델 경로
 
 # 결과 파일 이름 2개
-OUTPUT_CSV = "full_match_log.csv"      
-OUTPUT_JSON = "full_match_log.json"    
+OUTPUT_CSV = "full_match_log.csv"
+OUTPUT_JSON = "full_match_log.json"
 
 # 4개 다 찾도록 설정
-TARGET_LABELS = ['wide', 'close', 'audience', 'replay'] 
+TARGET_LABELS = ["wide", "close", "audience", "replay"]
 # ===========================================
 
-LABELS = ['wide', 'close', 'audience', 'replay']
+LABELS = ["wide", "close", "audience", "replay"]
+
 
 def sec_to_time(seconds):
     """초 단위를 '00분 00초' 형식으로 변환"""
@@ -30,10 +32,20 @@ def sec_to_time(seconds):
     s = int(seconds % 60)
     return f"{m:02d}분 {s:02d}초"
 
+
 def analyze_full_video_json():
     # 0. 장치 설정
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
     print(f"분석 중 (Device: {device})")
+    
+    if not os.path.exists(INPUT_VIDEO):
+        print(f"비디오 파일을 찾을 수 없습니다: {INPUT_VIDEO}")
+        return
 
     # 1. 모델 로드
     if not os.path.exists(MODEL_PATH):
@@ -47,11 +59,13 @@ def analyze_full_video_json():
     model.eval()
 
     # 2. 전처리 설정
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ])
+    transform = transforms.Compose(
+        [
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    )
 
     # 3. 장면 구간 나누기
     print("1. 영상의 모든 컷을 나누기")
@@ -67,24 +81,28 @@ def analyze_full_video_json():
     # 4. AI 분석 및 기록
     print("2. 각 컷의 장면의 종류 예측")
     cap = cv2.VideoCapture(INPUT_VIDEO)
-    
-    timeline_data = [] 
 
-    print("\n" + "="*60)
-    print(f"   {'[장면 종류]':<10} |  {'시작 시간':<10} ~  {'종료 시간':<10} |  {'길이(초)':<5}")
-    print("="*60)
+    timeline_data = []
+
+    print("\n" + "=" * 60)
+    print(
+        f"   {'[장면 종류]':<10} |  {'시작 시간':<10} ~  {'종료 시간':<10} |  {'길이(초)':<5}"
+    )
+    print("=" * 60)
 
     for scene in tqdm(scene_list):
         start = scene[0].get_seconds()
         end = scene[1].get_seconds()
         duration = end - start
-        
-        if duration < 0.5: continue
+
+        if duration < 0.5:
+            continue
 
         mid_pos = start + (duration / 2)
         cap.set(cv2.CAP_PROP_POS_MSEC, mid_pos * 1000)
         ret, frame = cap.read()
-        if not ret: continue
+        if not ret:
+            continue
 
         # AI 예측
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -94,7 +112,7 @@ def analyze_full_video_json():
         with torch.no_grad():
             outputs = model(img_tensor)
             _, preds = torch.max(outputs, 1)
-            
+
         label_idx = preds.item()
         label_name = LABELS[label_idx]
 
@@ -102,39 +120,44 @@ def analyze_full_video_json():
         if label_name in TARGET_LABELS:
             start_str = sec_to_time(start)
             end_str = sec_to_time(end)
-            
+
             # 터미널 출력
-            prefix = "★ " if label_name == 'replay' else "  "
-            print(f" {prefix}[{label_name.upper():<8}] |  {start_str:<10} ~  {end_str:<10} |  {duration:.1f}s")
-            
-            timeline_data.append({
-                "label": label_name,
-                "start_time": start_str,
-                "end_time": end_str,
-                "duration": round(duration, 2),
-                "start_seconds": round(start, 2),
-                "end_seconds": round(end, 2)
-            })
+            prefix = "★ " if label_name == "replay" else "  "
+            print(
+                f" {prefix}[{label_name.upper():<8}] |  {start_str:<10} ~  {end_str:<10} |  {duration:.1f}s"
+            )
+
+            timeline_data.append(
+                {
+                    "label": label_name,
+                    "start_time": start_str,
+                    "end_time": end_str,
+                    "duration": round(duration, 2),
+                    "start_seconds": round(start, 2),
+                    "end_seconds": round(end, 2),
+                }
+            )
 
     cap.release()
-    
+
     # 5. 파일 저장 (CSV + JSON)
     if timeline_data:
         # CSV 저장
         df = pd.DataFrame(timeline_data)
-        df.to_csv(OUTPUT_CSV, index=False, encoding='utf-8-sig')
-        
+        df.to_csv(OUTPUT_CSV, index=False, encoding="utf-8-sig")
+
         # JSON 저장
-        with open(OUTPUT_JSON, 'w', encoding='utf-8') as f:
+        with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
             json.dump(timeline_data, f, indent=4, ensure_ascii=False)
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print(f"분석 완료")
         print(f"엑셀 파일: {OUTPUT_CSV}")
         print(f"JSON 파일: {OUTPUT_JSON}")
         print(f"총 {len(timeline_data)}개의 컷이 기록되었습니다.")
     else:
         print("분석된 데이터가 없습니다.")
+
 
 if __name__ == "__main__":
     analyze_full_video_json()

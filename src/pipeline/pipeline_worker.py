@@ -172,7 +172,9 @@ class BatchPipelineWorker(QThread):
                 return
 
             try:
-                video_name = video_path.split("/")[-1]
+                # Use Path for cross-platform compatibility
+                from pathlib import Path
+                video_name = Path(video_path).name
                 logger.info(f"Processing video {idx+1}/{total}: {video_name}")
 
                 # Update batch progress

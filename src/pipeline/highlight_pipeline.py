@@ -17,7 +17,7 @@ import time
 from src.pipeline.pipeline_config import PipelineConfig, create_config_from_mode
 from src.audio.scoreboard_ocr_detector import ScoreboardOCRDetector, GoalEvent
 from src.audio.highlight_filter import AudioHighlightFilter
-from src.audio.faster_whisper_transcriber import FasterWhisperTranscriber
+from src.audio.whisper_transcriber import WhisperTranscriber
 from src.ai.transcript_analyzer import TranscriptAnalyzer
 from src.scene.scene_classifier import SceneClassifier
 from src.core.video_editor import VideoEditor
@@ -288,12 +288,10 @@ class HighlightPipeline:
         """Process transcript and AI analysis to generate highlights."""
         self._report_progress("해설 분석", base_progress, "음성 인식 중...")
 
-        # Step 1: Faster-Whisper transcription (3-4x faster than OpenAI Whisper)
+        # Step 1: Whisper transcription (optimized with beam_size=1)
         if self._whisper is None:
-            self._whisper = FasterWhisperTranscriber(
+            self._whisper = WhisperTranscriber(
                 model_size=self.config.transcript_analysis.model_size,
-                device="auto",  # Auto-detect CUDA/CPU
-                compute_type="auto",  # int8 for CPU, float16 for GPU
                 language=self.config.transcript_analysis.language
             )
 

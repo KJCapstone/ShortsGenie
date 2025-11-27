@@ -27,14 +27,15 @@ KEYWORDS = ["골", "축구", "득점"]  # 관심 키워드
 # 1️⃣ 오디오 추출
 def extract_audio(video_path, audio_path):
     print(f"🎧 오디오 추출: {video_path}")
-    ffmpeg_path = r"C:\ffmpeg\bin\ffmpeg.exe"  # 절대경로 지정
+    # Use system ffmpeg from PATH (cross-platform compatible)
+    # Set FFMPEG_PATH environment variable if ffmpeg is not in PATH
 
     (
         ffmpeg
         .input(video_path)
         .output(audio_path, ac=1, ar=16000, acodec="pcm_s16le")
         .overwrite_output()
-        .run(cmd=ffmpeg_path, quiet=True)
+        .run(quiet=True)
     )
     print(f"✅ 오디오 추출 완료 → {audio_path}")
 

@@ -2,6 +2,42 @@
 
 from dataclasses import dataclass, field
 from typing import List, Dict
+from pathlib import Path
+import os
+
+
+def get_project_root() -> Path:
+    """Get the project root directory (app/ folder)."""
+    # This file is at app/src/utils/config.py, so go up 2 levels to get app/
+    return Path(__file__).parent.parent.parent
+
+
+def get_model_path(model_name: str) -> str:
+    """
+    Get the full path to a model file.
+
+    Args:
+        model_name: Name of the model file (e.g., "best.pt", "yolov8n.pt")
+
+    Returns:
+        Absolute path to the model file as a string
+    """
+    project_root = get_project_root()
+
+    # Check in resources/models/ first (preferred location)
+    models_dir = project_root / "resources" / "models"
+    model_path = models_dir / model_name
+
+    if model_path.exists():
+        return str(model_path)
+
+    # Fallback to app root for backward compatibility
+    fallback_path = project_root / model_name
+    if fallback_path.exists():
+        return str(fallback_path)
+
+    # If not found, return the preferred path (will be created when downloaded)
+    return str(model_path)
 
 
 @dataclass
@@ -18,7 +54,7 @@ class VideoConfig:
 @dataclass
 class DetectionConfig:
     """Object detection configuration."""
-    model_path: str = "/Users/eonyak/shortsgenie/best.pt"  # Fine-tuned model (soccer-specific)
+    model_path: str = field(default_factory=lambda: get_model_path("best.pt"))  # Fine-tuned model (soccer-specific)
     confidence_threshold: float = 0.05  # Lowered from 0.3 for higher recall
     iou_threshold: float = 0.45
     target_classes: List[int] = field(default_factory=lambda: [0, 32])  # person, sports ball
@@ -116,7 +152,7 @@ class SceneDetectionConfig:
     min_scene_len: int = 15  # Minimum frames per scene (0.5s at 30fps)
 
     # TransNetV2 parameters
-    transnet_model_dir: str = "resources/models/transnetv2/"
+    transnet_model_dir: str = field(default_factory=lambda: str(get_project_root() / "resources" / "models" / "transnetv2"))
     transnet_threshold: float = 0.5  # Probability threshold
 
     # Optical flow parameters
@@ -176,7 +212,7 @@ class SceneConfig:
 
     # Scene metadata source
     use_auto_tagger: bool = True  # Use auto_tagger ResNet-18 model
-    auto_tagger_model_path: str = "auto_tagger/model/soccer_model.pth"
+    auto_tagger_model_path: str = field(default_factory=lambda: str(get_project_root() / "auto_tagger" / "model" / "soccer_model.pth"))
 
     # Fallback to PySceneDetect if auto_tagger unavailable
     fallback_to_pyscenedetect: bool = True

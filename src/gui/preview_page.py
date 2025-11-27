@@ -129,7 +129,7 @@ class VideoListItem(QWidget):
         
         # Title label (below the video/frame)
         self.title_label = QLabel(self.title)
-        self.title_label.setFont(QFont("Arial", 9, QFont.Bold if self.is_selected else QFont.Normal))
+        self.title_label.setFont(QFont("Arial", 12, QFont.Bold if self.is_selected else QFont.Normal))  # 9 → 12
         self.title_label.setStyleSheet("color: #333333; border: none; background-color: transparent;")
         self.title_label.setAlignment(Qt.AlignCenter)
         self.title_label.setWordWrap(True)
@@ -147,7 +147,7 @@ class VideoListItem(QWidget):
         self.is_selected = selected
         
         # 타이틀 레이블 업데이트
-        self.title_label.setFont(QFont("Arial", 9, QFont.Bold if selected else QFont.Normal))
+        self.title_label.setFont(QFont("Arial", 12, QFont.Bold if selected else QFont.Normal))  # 9 → 12
         
         if self.video_path:
             # Video exists - update video widget style
@@ -303,7 +303,7 @@ class VideoPreviewPage(QWidget):
         
         # Title
         title_label = QLabel("⚽ 골 모음 영상")
-        title_label.setFont(QFont("Arial", 12, QFont.Bold))
+        title_label.setFont(QFont("Arial", 16, QFont.Bold))  # 12 → 16
         title_label.setStyleSheet("color: #333333; border: none; background-color: transparent;")
         
         # Container for video items (no scroll)
@@ -351,7 +351,7 @@ class VideoPreviewPage(QWidget):
                 color: #333333;
                 border: none;
                 border-radius: 8px;
-                font-size: 11pt;
+                font-size: 14pt;
                 font-weight: bold;
                 padding: 0 20px;
             }
@@ -368,7 +368,7 @@ class VideoPreviewPage(QWidget):
                 color: #333333;
                 border: none;
                 border-radius: 8px;
-                font-size: 11pt;
+                font-size: 14pt;
                 font-weight: bold;
                 padding: 0 20px;
             }
@@ -437,7 +437,7 @@ class VideoPreviewPage(QWidget):
 
         # Time label (current time / total time)
         self.time_label = QLabel("00:00 / 00:00")
-        self.time_label.setFont(QFont("Arial", 9))
+        self.time_label.setFont(QFont("Arial", 12))  # 9 → 12
         self.time_label.setStyleSheet("color: #666666; border: none; background-color: transparent;")
         self.time_label.setMinimumWidth(80)
         self.time_label.setAlignment(Qt.AlignCenter)
@@ -570,21 +570,28 @@ class VideoPreviewPage(QWidget):
             if item.widget():
                 item.widget().deleteLater()
         
-        # Create video items
+        # Create video items (only for highlights with valid video_path)
+        valid_index = 0
         for i, highlight in enumerate(highlights):
-            title = highlight.get('title', f'후보 {i+1} 영상')
             video_path = highlight.get('video_path', None)
-            
+
+            # Skip highlights without valid video files
+            if not video_path:
+                continue
+
+            title = highlight.get('title', f'후보 {valid_index+1} 영상')
+
             item = VideoListItem(
-                index=i, 
-                title=title, 
+                index=valid_index,
+                title=title,
                 video_path=video_path,
-                is_selected=(i == selected_index)
+                is_selected=(valid_index == selected_index)
             )
             item.clicked.connect(self._on_video_item_clicked)
-        
-            self.video_list_layout.insertWidget(i + 1, item)
+
+            self.video_list_layout.insertWidget(valid_index + 1, item)
             self.video_items.append(item)
+            valid_index += 1
         
         # Load first video
         if highlights and selected_index < len(highlights):

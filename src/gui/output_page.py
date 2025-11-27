@@ -225,7 +225,7 @@ class OutputSettingsPage(QWidget):
         
         # Label
         label = QLabel("저장경로 선택")
-        label.setFont(QFont("맑은 고딕", 12, QFont.Bold))
+        label.setFont(QFont("맑은 고딕", 14, QFont.Bold))  # 12 → 14
         label.setStyleSheet(f"color: {TEXT_COLOR};")
         
         # Input row
@@ -268,7 +268,7 @@ class OutputSettingsPage(QWidget):
         
         # Label
         label = QLabel("파일이름")
-        label.setFont(QFont("맑은 고딕", 12, QFont.Bold))
+        label.setFont(QFont("맑은 고딕", 14, QFont.Bold))  # 12 → 14
         label.setStyleSheet(f"color: {TEXT_COLOR};")
         
         # Input field
@@ -288,7 +288,7 @@ class OutputSettingsPage(QWidget):
         
         # Label
         label = QLabel("화질 선택")
-        label.setFont(QFont("맑은 고딕", 12, QFont.Bold))
+        label.setFont(QFont("맑은 고딕", 14, QFont.Bold))  # 12 → 14
         label.setStyleSheet(f"color: {TEXT_COLOR};")
         
         # Quality dropdown
@@ -302,7 +302,7 @@ class OutputSettingsPage(QWidget):
                 border: 1px solid {INPUT_BORDER_COLOR};
                 border-radius: 8px;
                 padding: 0 10px;
-                font-size: 11px;
+                font-size: 13px;
                 color: #6b7280;
                 background-color: white;
             }}
@@ -338,7 +338,7 @@ class OutputSettingsPage(QWidget):
                 background-color: white;
                 border: 1px solid #DDDDDD;
                 border-radius: 10px;
-                font-size: 13px;
+                font-size: 15px;
                 font-weight: bold;
             }}
             QPushButton:hover {{
@@ -359,7 +359,7 @@ class OutputSettingsPage(QWidget):
                 border: 1px solid {INPUT_BORDER_COLOR};
                 border-radius: 8px;
                 padding: 0 10px;
-                font-size: 11px;
+                font-size: 13px;
                 color: #6b7280;
                 background-color: white;
             }}

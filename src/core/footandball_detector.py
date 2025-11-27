@@ -2,13 +2,30 @@
 # Wrapper for the FootAndBall model to work with our reframing pipeline
 
 import sys
+import os
 from pathlib import Path
 import torch
 import numpy as np
 
-# Add FootAndBall directory to path
-FOOTANDBALL_PATH = Path(__file__).parent.parent.parent.parent / "FootAndBall"
-sys.path.insert(0, str(FOOTANDBALL_PATH))
+# Get FootAndBall path from environment variable or use default
+def get_footandball_path():
+    """Get FootAndBall repository path from environment or default location."""
+    env_path = os.getenv('FOOTANDBALL_PATH')
+    if env_path:
+        return Path(env_path)
+    # Default: assume FootAndBall is sibling directory to shortsgenie
+    return Path(__file__).parent.parent.parent.parent / "FootAndBall"
+
+FOOTANDBALL_PATH = get_footandball_path()
+if FOOTANDBALL_PATH.exists():
+    sys.path.insert(0, str(FOOTANDBALL_PATH))
+else:
+    raise RuntimeError(
+        f"FootAndBall repository not found at {FOOTANDBALL_PATH}. "
+        "Please either:\n"
+        "1. Clone FootAndBall to the expected location, or\n"
+        "2. Set FOOTANDBALL_PATH environment variable to the correct path"
+    )
 
 from network import footandball
 from data.augmentation import PLAYER_LABEL, BALL_LABEL

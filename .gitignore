@@ -58,15 +58,37 @@ CLAUDE.md
 GEMINI.md
 
 input/
-# === Videos (do not commit) ===
+
+# Videos
 *.mp4
 *.mov
 *.avi
+*.mkv
 
-# === Notebooks & caches ===
+# Notebooks & caches
 .ipynb_checkpoints/
 __pycache__/
 
-# === Local envs ===
+# Local envs
 venv/
 .venv/
+
+
+# 사용자 지정 가상환경 이름
+soccer-env/
+
+# 오디오 추출 파일 
+*.mp3
+*.wav
+*.m4a
+*.flac
+extracted_audio.mp3
+
+# 분석 결과 파일 
+match_transcript.json
+match_transcript_local.json
+match_transcript_cpu.json
+transcript_result.json
+
+# 임시 생성 파일들
+temp_*

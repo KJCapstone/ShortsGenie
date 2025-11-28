@@ -73,6 +73,9 @@ __pycache__/
 venv/
 .venv/
 
+*.json
+*.csv
+!dataset.csv
 
 # 사용자 지정 가상환경 이름
 soccer-env/

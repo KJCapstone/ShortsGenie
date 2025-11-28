@@ -56,7 +56,7 @@ class TranscriptAnalysisConfig(ModuleConfig):
 
     # Whisper settings
     model_size: str = "base"  # tiny, base, small, medium, large
-    language: str = "ko"  # Korean commentary
+    language: str = "auto"  # Auto-detect language (supports 99 languages)
 
     # AI analysis
     use_gemini: bool = True
@@ -75,6 +75,28 @@ class SceneDetectionConfig(ModuleConfig):
 
 
 @dataclass
+class SceneClassificationConfig(ModuleConfig):
+    """Auto_tagger ResNet18 scene classification configuration."""
+    enabled: bool = True
+    priority: int = 5  # After highlight extraction, before reframing
+
+    # Model settings
+    model_path: str = "resources/models/scene_classifier/soccer_model_ver2.pth"
+    device: str = "auto"  # auto, mps, cuda, cpu
+
+    # PySceneDetect parameters (for boundary detection)
+    threshold: float = 27.0  # ContentDetector threshold
+    min_scene_len: int = 15  # Minimum frames per scene
+
+    # Classification parameters
+    min_scene_duration: float = 0.5  # Skip very short scenes
+
+    # Output settings
+    save_json: bool = True
+    json_output_dir: str = "output/scene_metadata"
+
+
+@dataclass
 class ReframingConfig(ModuleConfig):
     """Dynamic 16:9 → 9:16 reframing configuration."""
     enabled: bool = True
@@ -83,6 +105,14 @@ class ReframingConfig(ModuleConfig):
     # Detection
     use_soccernet_model: bool = True  # Use fine-tuned model if available
     confidence_threshold: float = 0.05  # Low for high recall
+
+    # Detector backend selection
+    detector_backend: str = "yolo"  # Options: "yolo", "soccernet", "footandball"
+
+    # FootAndBall-specific settings (if detector_backend == "footandball")
+    footandball_model_path: Optional[str] = None  # Auto-detect if None
+    footandball_ball_threshold: float = 0.5
+    footandball_player_threshold: float = 0.5
 
     # Filtering
     use_temporal_filter: bool = True
@@ -121,6 +151,7 @@ class PipelineConfig:
     audio_analysis: AudioAnalysisConfig = field(default_factory=AudioAnalysisConfig)
     transcript_analysis: TranscriptAnalysisConfig = field(default_factory=TranscriptAnalysisConfig)
     scene_detection: SceneDetectionConfig = field(default_factory=SceneDetectionConfig)
+    scene_classification: SceneClassificationConfig = field(default_factory=SceneClassificationConfig)
     reframing: ReframingConfig = field(default_factory=ReframingConfig)
     video_editing: VideoEditingConfig = field(default_factory=VideoEditingConfig)
 
@@ -162,7 +193,10 @@ class PipelineConfig:
         config.transcript_analysis.enabled = True  # Whisper + Gemini
         config.reframing.enabled = True
 
-        # Disable optional modules for speed
+        # Enable scene classification for scene-aware ROI
+        config.scene_classification.enabled = True
+
+        # Disable old scene detection module
         config.scene_detection.enabled = False
 
         # Goal-specific parameters

@@ -1,23 +1,23 @@
 """
-OpenAI Whisper 기반 음성-텍스트 변환
+Faster-Whisper 기반 음성-텍스트 변환
 
-CUDA, CPU 지원 (MPS는 현재 미지원)
+OpenAI Whisper와 동일한 정확도, 3-4배 빠른 속도
+CTranslate2 + INT8 quantization 사용
 """
 
-import whisper
-import torch
+from faster_whisper import WhisperModel
 import time
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
 import json
 
 
-class WhisperTranscriber:
+class FasterWhisperTranscriber:
     """
-    OpenAI Whisper를 사용한 음성-텍스트 변환
+    Faster-Whisper를 사용한 음성-텍스트 변환
 
-    CUDA, CPU 자동 감지 및 최적화
-    주의: MPS(Apple Silicon)는 현재 Whisper와 호환성 문제로 CPU 사용
+    OpenAI Whisper 대비 3-4배 빠름 (CTranslate2 + INT8)
+    정확도는 동일
 
     Args:
         model_size: Whisper 모델 크기
@@ -25,8 +25,12 @@ class WhisperTranscriber:
             - base: 74M params (빠름, 적절한 정확도) ★ 추천
             - small: 244M params (중간 속도, 높은 정확도)
             - medium: 769M params (느림, 매우 높은 정확도)
-            - large: 1550M params (매우 느림, 최고 정확도)
+            - large-v2: 1550M params (매우 느림, 최고 정확도)
         device: 디바이스 ('auto', 'cuda', 'cpu')
+        compute_type: 연산 타입
+            - int8: 가장 빠름, 메모리 적음 (CPU 추천)
+            - float16: 빠름 (GPU 추천)
+            - float32: 느림, 정확 (정확도 최우선 시)
         language: 언어 코드 (None=자동감지, 'ko'=한국어, 'en'=영어)
         verbose: 진행 상황 출력 여부
     """
@@ -35,31 +39,45 @@ class WhisperTranscriber:
         self,
         model_size: str = "base",
         device: str = "auto",
+        compute_type: str = "auto",
         language: Optional[str] = None,
         verbose: bool = True
     ):
         self.model_size = model_size
-        # "auto"를 None으로 변환 (Whisper는 None일 때 자동 감지)
         self.language = None if language == "auto" else language
         self.verbose = verbose
 
         # 디바이스 자동 감지
         if device == "auto":
-            # Whisper는 현재 MPS를 완전히 지원하지 않으므로 CPU 사용
+            import torch
             if torch.cuda.is_available():
-                self.device = "cuda"  # NVIDIA GPU
+                self.device = "cuda"
             else:
-                self.device = "cpu"  # CPU (Apple Silicon 포함)
+                self.device = "cpu"
         else:
             self.device = device
 
-        self._log(f"🔧 Whisper 초기화 중...")
+        # Compute type 자동 선택
+        if compute_type == "auto":
+            if self.device == "cuda":
+                self.compute_type = "float16"  # GPU: float16 최적
+            else:
+                self.compute_type = "int8"  # CPU: int8 최적
+        else:
+            self.compute_type = compute_type
+
+        self._log(f"🔧 Faster-Whisper 초기화 중...")
         self._log(f"   모델: {model_size}")
         self._log(f"   디바이스: {self.device}")
+        self._log(f"   Compute type: {self.compute_type}")
 
-        # Whisper 모델 로드
+        # Faster-Whisper 모델 로드
         load_start = time.time()
-        self.model = whisper.load_model(model_size, device=self.device)
+        self.model = WhisperModel(
+            model_size,
+            device=self.device,
+            compute_type=self.compute_type
+        )
         load_time = time.time() - load_start
 
         self._log(f"✅ 모델 로드 완료 ({load_time:.2f}초)")
@@ -82,7 +100,7 @@ class WhisperTranscriber:
             segments: 특정 구간만 변환 [(start, end), ...] (None이면 전체)
 
         Returns:
-            Whisper 결과 딕셔너리
+            Whisper 결과 딕셔너리 (OpenAI Whisper와 호환)
             {
                 'text': 전체 텍스트,
                 'segments': [
@@ -99,7 +117,7 @@ class WhisperTranscriber:
         total_start = time.time()
 
         self._log("=" * 60)
-        self._log("🎙️  음성-텍스트 변환 시작")
+        self._log("🎙️  음성-텍스트 변환 시작 (Faster-Whisper)")
         self._log("=" * 60)
         self._log(f"📂 입력 파일: {audio_path}")
 
@@ -116,34 +134,49 @@ class WhisperTranscriber:
         total_start: float
     ) -> Dict:
         """전체 오디오 변환"""
-        self._log("\n🔄 Whisper 변환 중...")
+        self._log("\n🔄 Faster-Whisper 변환 중...")
         self._log("   ⏳ 시간이 다소 걸릴 수 있습니다...")
 
         transcribe_start = time.time()
 
-        # Whisper 실행 (최적화된 파라미터)
-        result = self.model.transcribe(
+        # Faster-Whisper 실행
+        segments_iter, info = self.model.transcribe(
             audio_path,
             language=self.language,
-            verbose=False,  # Whisper 자체 로그 비활성화
-            beam_size=1,    # 5→1로 줄여서 5배 속도 향상
-            best_of=1       # 5→1로 줄여서 추가 속도 향상
+            beam_size=1,  # 빠른 처리를 위해 beam_size=1
+            vad_filter=True,  # VAD 필터로 무음 제거 (더 빠름)
         )
+
+        # 세그먼트를 리스트로 변환
+        segments_list = []
+        full_text = []
+
+        for segment in segments_iter:
+            segments_list.append({
+                'start': segment.start,
+                'end': segment.end,
+                'text': segment.text
+            })
+            full_text.append(segment.text)
 
         transcribe_time = time.time() - transcribe_start
         total_time = time.time() - total_start
 
         # 결과 출력
         self._log(f"\n✅ 변환 완료 ({transcribe_time:.2f}초)")
-        self._log(f"   🌍 감지된 언어: {result.get('language', 'unknown')}")
-        self._log(f"   📝 세그먼트 수: {len(result['segments'])}개")
-        self._log(f"   📄 텍스트 길이: {len(result['text'])}자")
+        self._log(f"   🌍 감지된 언어: {info.language}")
+        self._log(f"   📝 세그먼트 수: {len(segments_list)}개")
+        self._log(f"   📄 텍스트 길이: {len(' '.join(full_text))}자")
 
         self._log("\n" + "=" * 60)
         self._log(f"✨ 전체 작업 완료! (총 {total_time:.2f}초)")
         self._log("=" * 60)
 
-        return result
+        return {
+            'text': ' '.join(full_text),
+            'segments': segments_list,
+            'language': info.language
+        }
 
     def _transcribe_segments(
         self,
@@ -154,32 +187,41 @@ class WhisperTranscriber:
         """
         특정 구간만 변환 (하이라이트 필터링 후)
 
-        FFmpeg로 임시 파일을 만들지 않고 Whisper의 타임스탬프 기능 활용
+        Note: Faster-Whisper는 전체 파일 변환이 더 효율적이므로
+        전체 변환 후 필터링하는 방식 사용
         """
         self._log("\n🔄 [1/2] 전체 오디오 변환 중...")
         self._log("   ⏳ 시간이 다소 걸릴 수 있습니다...")
 
         transcribe_start = time.time()
 
-        # 전체 오디오 변환 (타임스탬프 포함, 최적화)
-        result = self.model.transcribe(
+        # 전체 오디오 변환 (타임스탬프 포함)
+        segments_iter, info = self.model.transcribe(
             audio_path,
             language=self.language,
-            verbose=False,
-            beam_size=1,    # 5→1로 줄여서 5배 속도 향상
-            best_of=1       # 5→1로 줄여서 추가 속도 향상
+            beam_size=1,
+            vad_filter=True,
         )
+
+        # 세그먼트 수집
+        all_segments = []
+        for segment in segments_iter:
+            all_segments.append({
+                'start': segment.start,
+                'end': segment.end,
+                'text': segment.text
+            })
 
         transcribe_time = time.time() - transcribe_start
         self._log(f"✅ [1/2] 변환 완료 ({transcribe_time:.2f}초)")
-        self._log(f"   📝 전체 세그먼트 수: {len(result['segments'])}개")
+        self._log(f"   📝 전체 세그먼트 수: {len(all_segments)}개")
 
         # 지정된 구간에 해당하는 세그먼트만 필터링
         self._log("\n🔄 [2/2] 하이라이트 구간 필터링 중...")
         filter_start = time.time()
 
         filtered_segments = []
-        for whisper_seg in result['segments']:
+        for whisper_seg in all_segments:
             seg_start = whisper_seg['start']
             seg_end = whisper_seg['end']
 
@@ -200,7 +242,7 @@ class WhisperTranscriber:
         self._log(f"   📝 필터링된 세그먼트: {len(filtered_segments)}개")
         self._log(f"   📄 텍스트 길이: {len(filtered_text)}자")
 
-        reduction_rate = (1 - len(filtered_segments) / len(result['segments'])) * 100
+        reduction_rate = (1 - len(filtered_segments) / len(all_segments)) * 100 if all_segments else 0
         self._log(f"\n📊 필터링 결과:")
         self._log(f"   📉 세그먼트 감소율: {reduction_rate:.1f}%")
 
@@ -212,8 +254,8 @@ class WhisperTranscriber:
         return {
             'text': filtered_text,
             'segments': filtered_segments,
-            'language': result.get('language', 'unknown'),
-            'original_segments_count': len(result['segments']),
+            'language': info.language,
+            'original_segments_count': len(all_segments),
             'filtered_segments_count': len(filtered_segments)
         }
 
@@ -276,17 +318,17 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 2:
-        print("사용법: python whisper_transcriber.py <audio_file> [output.txt]")
+        print("사용법: python faster_whisper_transcriber.py <audio_file> [output.txt]")
         sys.exit(1)
 
     audio_path = sys.argv[1]
     output_path = sys.argv[2] if len(sys.argv) > 2 else "output/transcript.txt"
 
-    # Whisper 변환
-    transcriber = WhisperTranscriber(
+    # Faster-Whisper 변환
+    transcriber = FasterWhisperTranscriber(
         model_size="base",
         device="auto",
-        language="ko"
+        language="auto"
     )
 
     result = transcriber.transcribe(audio_path)

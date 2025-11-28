@@ -1,7 +1,43 @@
 """Configuration management for the application."""
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Dict
+from pathlib import Path
+import os
+
+
+def get_project_root() -> Path:
+    """Get the project root directory (app/ folder)."""
+    # This file is at app/src/utils/config.py, so go up 2 levels to get app/
+    return Path(__file__).parent.parent.parent
+
+
+def get_model_path(model_name: str) -> str:
+    """
+    Get the full path to a model file.
+
+    Args:
+        model_name: Name of the model file (e.g., "best.pt", "yolov8n.pt")
+
+    Returns:
+        Absolute path to the model file as a string
+    """
+    project_root = get_project_root()
+
+    # Check in resources/models/ first (preferred location)
+    models_dir = project_root / "resources" / "models"
+    model_path = models_dir / model_name
+
+    if model_path.exists():
+        return str(model_path)
+
+    # Fallback to app root for backward compatibility
+    fallback_path = project_root / model_name
+    if fallback_path.exists():
+        return str(fallback_path)
+
+    # If not found, return the preferred path (will be created when downloaded)
+    return str(model_path)
 
 
 @dataclass
@@ -18,7 +54,7 @@ class VideoConfig:
 @dataclass
 class DetectionConfig:
     """Object detection configuration."""
-    model_path: str = "yolov8m.pt"  # Upgraded from yolov8n.pt for better accuracy
+    model_path: str = field(default_factory=lambda: get_model_path("best.pt"))  # Fine-tuned model (soccer-specific)
     confidence_threshold: float = 0.05  # Lowered from 0.3 for higher recall
     iou_threshold: float = 0.45
     target_classes: List[int] = field(default_factory=lambda: [0, 32])  # person, sports ball
@@ -28,6 +64,14 @@ class DetectionConfig:
     track_buffer: int = 30  # ByteTrack buffer size
     track_thresh: float = 0.5  # High confidence threshold
     match_thresh: float = 0.8  # IOU threshold for matching
+
+    # Detector backend selection
+    detector_backend: str = "yolo"  # Options: "yolo", "soccernet", "footandball"
+
+    # FootAndBall-specific settings
+    footandball_model_path: str = None  # Auto-detect from FootAndBall/models/ if None
+    footandball_ball_threshold: float = 0.5  # Ball detection threshold
+    footandball_player_threshold: float = 0.5  # Player detection threshold
 
 
 @dataclass
@@ -40,8 +84,8 @@ class ROIConfig:
 
     # Hysteresis parameters (dead zone to prevent jittery camera movement)
     use_hysteresis: bool = True  # Enable hysteresis-based ROI update
-    hysteresis_threshold: int = 100  # Dead zone radius in pixels
-    min_movement_frames: int = 3  # Frames before confirming movement
+    hysteresis_threshold: int = 150  # Dead zone radius in pixels (increased from 100)
+    min_movement_frames: int = 5  # Frames before confirming movement (increased from 3)
     adaptive_threshold: bool = True  # Scale threshold by confidence
 
     # Scene locking parameters (lock ROI when ball stays in area)
@@ -49,6 +93,27 @@ class ROIConfig:
     lock_threshold: int = 150  # Distance to trigger unlock (pixels)
     lock_min_frames: int = 15  # Minimum frames before establishing lock
     lock_decay_rate: float = 0.95  # Lock confidence decay per frame
+
+    # Scene-aware ROI parameters
+    use_scene_type_weights: bool = False  # Apply different weights per scene type
+    scene_type_weights: Dict[str, Dict[str, float]] = field(default_factory=lambda: {
+        'wide': {
+            'ball_weight': 4.0,      # Focus on ball in wide shots
+            'person_weight': 0.8,
+        },
+        'close': {
+            'ball_weight': 3.0,      # Balanced framing
+            'person_weight': 1.2,
+        },
+        'audience': {
+            'ball_weight': 0.0,      # No ball expected in audience shots
+            'person_weight': 2.0,
+        },
+        'replay': {
+            'ball_weight': 5.0,      # Maximum focus on ball in replays
+            'person_weight': 0.5,
+        }
+    })
 
 
 @dataclass
@@ -71,8 +136,8 @@ class SmootherConfig:
 
     # EMA parameters
     ema_alpha: float = 0.1  # Fixed EMA smoothing factor (0-1)
-    ema_alpha_min: float = 0.05  # Adaptive EMA minimum (very smooth)
-    ema_alpha_max: float = 0.25  # Adaptive EMA maximum (fast response)
+    ema_alpha_min: float = 0.03  # Adaptive EMA minimum (very smooth, reduced from 0.05)
+    ema_alpha_max: float = 0.20  # Adaptive EMA maximum (fast response, reduced from 0.25)
 
 
 @dataclass
@@ -87,7 +152,7 @@ class SceneDetectionConfig:
     min_scene_len: int = 15  # Minimum frames per scene (0.5s at 30fps)
 
     # TransNetV2 parameters
-    transnet_model_dir: str = "resources/models/transnetv2/"
+    transnet_model_dir: str = field(default_factory=lambda: str(get_project_root() / "resources" / "models" / "transnetv2"))
     transnet_threshold: float = 0.5  # Probability threshold
 
     # Optical flow parameters
@@ -141,6 +206,23 @@ class CropperConfig:
 
 
 @dataclass
+class SceneConfig:
+    """Scene awareness configuration for dynamic reframing."""
+    enabled: bool = True  # Scene-aware ROI for stability (enabled by default)
+
+    # Scene metadata source
+    use_auto_tagger: bool = True  # Use auto_tagger ResNet-18 model
+    auto_tagger_model_path: str = field(default_factory=lambda: str(get_project_root() / "auto_tagger" / "model" / "soccer_model.pth"))
+
+    # Fallback to PySceneDetect if auto_tagger unavailable
+    fallback_to_pyscenedetect: bool = True
+
+    # Scene validation
+    min_scene_duration: float = 0.5  # Minimum scene length in seconds
+    validate_on_load: bool = True  # Validate metadata when loading
+
+
+@dataclass
 class AppConfig:
     """Main application configuration."""
     video: VideoConfig = field(default_factory=VideoConfig)
@@ -149,6 +231,7 @@ class AppConfig:
     kalman: KalmanConfig = field(default_factory=KalmanConfig)
     smoother: SmootherConfig = field(default_factory=SmootherConfig)
     scene_detection: SceneDetectionConfig = field(default_factory=SceneDetectionConfig)
+    scene: SceneConfig = field(default_factory=SceneConfig)
     key_player: KeyPlayerConfig = field(default_factory=KeyPlayerConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
     cropper: CropperConfig = field(default_factory=CropperConfig)

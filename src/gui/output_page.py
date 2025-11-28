@@ -74,6 +74,7 @@ class OutputSettingsPage(QWidget):
     
     # Signals
     export_requested = Signal(str, str, str)
+    back_requested = Signal()  # 뒤로 가기 요청 시 emit
     
     def __init__(self, parent=None):
         """Initialize the output settings page."""
@@ -102,24 +103,49 @@ class OutputSettingsPage(QWidget):
         header.setMinimumHeight(HEADER_HEIGHT_MIN)
         header.setMaximumHeight(HEADER_HEIGHT_MAX)
         header.setStyleSheet(f"background-color: {HEADER_BG_COLOR};")
-        
+
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(15, 0, 0, 0)
-        
+        layout.setContentsMargins(10, 0, 20, 0)
+
+        # Back button (left side)
+        self.back_button = QPushButton("← 뒤로")
+        self.back_button.setFixedHeight(35)
+        self.back_button.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-size: 14pt;
+                font-family: Arial;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.1);
+            }
+        """)
+        self.back_button.setCursor(Qt.PointingHandCursor)
+        self.back_button.clicked.connect(self.on_back_button_clicked)
+        layout.addWidget(self.back_button)
+
+        # Spacer
+        layout.addStretch()
+
         # App icon
         icon_label = QLabel("🎬")
         icon_label.setFont(QFont("Arial", 20))
         icon_label.setStyleSheet("border: none; background-color: transparent;")
-        
+
         # App title
         title_label = QLabel("Shorts Genie")
         title_label.setFont(QFont("Arial", 18, QFont.Bold))
         title_label.setStyleSheet("color: white; border: none; background-color: transparent;")
-        
+
         layout.addWidget(icon_label)
         layout.addWidget(title_label)
         layout.addStretch()
-        
+
         return header
     
     def _setup_content(self) -> QWidget:
@@ -199,7 +225,7 @@ class OutputSettingsPage(QWidget):
         
         # Label
         label = QLabel("저장경로 선택")
-        label.setFont(QFont("맑은 고딕", 12, QFont.Bold))
+        label.setFont(QFont("맑은 고딕", 14, QFont.Bold))  # 12 → 14
         label.setStyleSheet(f"color: {TEXT_COLOR};")
         
         # Input row
@@ -242,7 +268,7 @@ class OutputSettingsPage(QWidget):
         
         # Label
         label = QLabel("파일이름")
-        label.setFont(QFont("맑은 고딕", 12, QFont.Bold))
+        label.setFont(QFont("맑은 고딕", 14, QFont.Bold))  # 12 → 14
         label.setStyleSheet(f"color: {TEXT_COLOR};")
         
         # Input field
@@ -262,7 +288,7 @@ class OutputSettingsPage(QWidget):
         
         # Label
         label = QLabel("화질 선택")
-        label.setFont(QFont("맑은 고딕", 12, QFont.Bold))
+        label.setFont(QFont("맑은 고딕", 14, QFont.Bold))  # 12 → 14
         label.setStyleSheet(f"color: {TEXT_COLOR};")
         
         # Quality dropdown
@@ -276,7 +302,7 @@ class OutputSettingsPage(QWidget):
                 border: 1px solid {INPUT_BORDER_COLOR};
                 border-radius: 8px;
                 padding: 0 10px;
-                font-size: 11px;
+                font-size: 13px;
                 color: #6b7280;
                 background-color: white;
             }}
@@ -312,7 +338,7 @@ class OutputSettingsPage(QWidget):
                 background-color: white;
                 border: 1px solid #DDDDDD;
                 border-radius: 10px;
-                font-size: 13px;
+                font-size: 15px;
                 font-weight: bold;
             }}
             QPushButton:hover {{
@@ -333,7 +359,7 @@ class OutputSettingsPage(QWidget):
                 border: 1px solid {INPUT_BORDER_COLOR};
                 border-radius: 8px;
                 padding: 0 10px;
-                font-size: 11px;
+                font-size: 13px;
                 color: #6b7280;
                 background-color: white;
             }}
@@ -425,4 +451,8 @@ class OutputSettingsPage(QWidget):
             'filename': self.filename_input.text(),
             'quality': self.quality_combo.currentText()
         }
-    
+
+    @Slot()
+    def on_back_button_clicked(self) -> None:
+        """Handle back button click."""
+        self.back_requested.emit()

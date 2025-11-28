@@ -129,7 +129,7 @@ class VideoListItem(QWidget):
         
         # Title label (below the video/frame)
         self.title_label = QLabel(self.title)
-        self.title_label.setFont(QFont("Arial", 9, QFont.Bold if self.is_selected else QFont.Normal))
+        self.title_label.setFont(QFont("Arial", 12, QFont.Bold if self.is_selected else QFont.Normal))  # 9 → 12
         self.title_label.setStyleSheet("color: #333333; border: none; background-color: transparent;")
         self.title_label.setAlignment(Qt.AlignCenter)
         self.title_label.setWordWrap(True)
@@ -147,7 +147,7 @@ class VideoListItem(QWidget):
         self.is_selected = selected
         
         # 타이틀 레이블 업데이트
-        self.title_label.setFont(QFont("Arial", 9, QFont.Bold if selected else QFont.Normal))
+        self.title_label.setFont(QFont("Arial", 12, QFont.Bold if selected else QFont.Normal))  # 9 → 12
         
         if self.video_path:
             # Video exists - update video widget style
@@ -183,6 +183,7 @@ class VideoPreviewPage(QWidget):
     
     # Signal
     output_settings_requested = Signal(dict) # 출력하기 버튼 클릭 시 발생
+    back_requested = Signal()  # 뒤로 가기 요청 시 emit
 
     def __init__(self) -> None:
         """Initialize the video preview page."""
@@ -213,24 +214,49 @@ class VideoPreviewPage(QWidget):
         header.setMinimumHeight(HEADER_HEIGHT_MIN)
         header.setMaximumHeight(HEADER_HEIGHT_MAX)
         header.setStyleSheet(f"background-color: {HEADER_BG_COLOR};")
-        
+
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(15, 0, 0, 0)
-        
+        layout.setContentsMargins(10, 0, 20, 0)
+
+        # Back button (left side)
+        self.back_button = QPushButton("← 뒤로")
+        self.back_button.setFixedHeight(35)
+        self.back_button.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-size: 14pt;
+                font-family: Arial;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.1);
+            }
+        """)
+        self.back_button.setCursor(Qt.PointingHandCursor)
+        self.back_button.clicked.connect(self.on_back_button_clicked)
+        layout.addWidget(self.back_button)
+
+        # Spacer
+        layout.addStretch()
+
         # Icon
         icon_label = QLabel("🎬")
         icon_label.setFont(QFont("Arial", 20))
         icon_label.setStyleSheet("border: none; background-color: transparent;")
-        
+
         # Title
         title_label = QLabel("Shorts Genie")
         title_label.setFont(QFont("Arial", 18, QFont.Bold))
         title_label.setStyleSheet("color: white; border: none; background-color: transparent;")
-        
+
         layout.addWidget(icon_label)
         layout.addWidget(title_label)
         layout.addStretch()
-        
+
         return header
     
     def _create_content(self) -> QWidget:
@@ -277,7 +303,7 @@ class VideoPreviewPage(QWidget):
         
         # Title
         title_label = QLabel("⚽ 골 모음 영상")
-        title_label.setFont(QFont("Arial", 12, QFont.Bold))
+        title_label.setFont(QFont("Arial", 16, QFont.Bold))  # 12 → 16
         title_label.setStyleSheet("color: #333333; border: none; background-color: transparent;")
         
         # Container for video items (no scroll)
@@ -325,7 +351,7 @@ class VideoPreviewPage(QWidget):
                 color: #333333;
                 border: none;
                 border-radius: 8px;
-                font-size: 11pt;
+                font-size: 14pt;
                 font-weight: bold;
                 padding: 0 20px;
             }
@@ -342,7 +368,7 @@ class VideoPreviewPage(QWidget):
                 color: #333333;
                 border: none;
                 border-radius: 8px;
-                font-size: 11pt;
+                font-size: 14pt;
                 font-weight: bold;
                 padding: 0 20px;
             }
@@ -411,7 +437,7 @@ class VideoPreviewPage(QWidget):
 
         # Time label (current time / total time)
         self.time_label = QLabel("00:00 / 00:00")
-        self.time_label.setFont(QFont("Arial", 9))
+        self.time_label.setFont(QFont("Arial", 12))  # 9 → 12
         self.time_label.setStyleSheet("color: #666666; border: none; background-color: transparent;")
         self.time_label.setMinimumWidth(80)
         self.time_label.setAlignment(Qt.AlignCenter)
@@ -544,21 +570,28 @@ class VideoPreviewPage(QWidget):
             if item.widget():
                 item.widget().deleteLater()
         
-        # Create video items
+        # Create video items (only for highlights with valid video_path)
+        valid_index = 0
         for i, highlight in enumerate(highlights):
-            title = highlight.get('title', f'후보 {i+1} 영상')
             video_path = highlight.get('video_path', None)
-            
+
+            # Skip highlights without valid video files
+            if not video_path:
+                continue
+
+            title = highlight.get('title', f'후보 {valid_index+1} 영상')
+
             item = VideoListItem(
-                index=i, 
-                title=title, 
+                index=valid_index,
+                title=title,
                 video_path=video_path,
-                is_selected=(i == selected_index)
+                is_selected=(valid_index == selected_index)
             )
             item.clicked.connect(self._on_video_item_clicked)
-        
-            self.video_list_layout.insertWidget(i + 1, item)
+
+            self.video_list_layout.insertWidget(valid_index + 1, item)
             self.video_items.append(item)
+            valid_index += 1
         
         # Load first video
         if highlights and selected_index < len(highlights):
@@ -572,5 +605,10 @@ class VideoPreviewPage(QWidget):
         # 오른쪽 패널의 영상 재생 중지
         if self.media_player:
             self.media_player.stop()
-        
+
         super().hideEvent(event)
+
+    @Slot()
+    def on_back_button_clicked(self) -> None:
+        """Handle back button click."""
+        self.back_requested.emit()

@@ -120,42 +120,55 @@ class TranscriptAnalyzer:
         """Gemini를 사용하여 하이라이트 추출"""
 
         prompt = f"""
-다음은 축구 경기 중계 텍스트입니다. 이 중계 텍스트를 분석하여 주요 하이라이트 장면들을 추출해주세요.
+Analyze the following soccer match commentary and extract ONLY goals and key chances.
 
-중계 텍스트:
+Commentary text:
 ```
 {transcript}
 ```
 
-요구사항:
-1. 골, 결정적 기회, 중요한 수비 등 주요 하이라이트 장면만 추출
-2. 각 하이라이트는 다음 정보를 포함해야 합니다:
-   - start: 시작 시간(초 단위, 소수점 포함)
-   - end: 종료 시간(초 단위, 소수점 포함)
-   - type: 하이라이트 유형 ("goal", "chance", "save", "foul" 중 하나)
-   - description: 한국어로 된 간단한 설명 (50자 이내)
+Requirements:
+1. Extract ONLY two types of highlights:
+   - "goal": Actual goals scored
+   - "chance": Clear goal-scoring opportunities (shots on target, near misses)
 
-3. 시간 형식:
-   - 텍스트에서 시간이 "MM:SS.S" 형식이면 초로 변환 (예: "1:24:30.2" = 5070.2초)
-   - start 시간은 하이라이트 시작 시점
-   - end 시간은 start + 약 8-10초 (골 세레머니 포함)
+2. Timing is CRITICAL:
+   - Include sufficient context BEFORE the moment (build-up play)
+   - Include sufficient context AFTER the moment (celebrations, replays)
+   - Analyze the commentary to determine appropriate padding:
+     * If commentary describes build-up → include 3-5 seconds before
+     * If commentary mentions celebration → include 3-5 seconds after
+     * If commentary mentions replay → include additional 5 seconds
+   - Minimum clip duration: 15 seconds
+   - Recommended: 20-30 seconds per highlight
 
-4. 출력 형식은 **반드시 JSON 배열**이어야 합니다:
+3. Merge adjacent highlights:
+   - If two highlights are within 3 seconds of each other, merge them into ONE highlight
+   - Example: If highlight A ends at 350s and highlight B starts at 352s → merge into single highlight from A.start to B.end
+
+4. Time format:
+   - Convert "MM:SS.S" format to seconds (e.g., "1:24:30.2" = 5070.2 seconds)
+   - start: beginning of context (including build-up)
+   - end: end of context (including celebration/replay)
+
+5. Output format must be a JSON array:
 ```json
 [
   {{
-    "start": 5070.2,
-    "end": 5079.2,
+    "start": 5065.0,
+    "end": 5090.0,
     "type": "goal",
     "description": "황의조 득점 (1-0). 손흥민의 PK를 무슬레라가 막았으나, 황의조가 리바운드 볼을 밀어 넣어 선제골 기록."
   }}
 ]
 ```
 
-**중요**:
-- 응답은 JSON 배열만 출력하세요. 다른 텍스트나 설명은 포함하지 마세요.
-- 코드 블록(```)을 사용하지 마세요.
-- 순수 JSON만 출력하세요.
+**Important**:
+- Output ONLY the JSON array. No other text or explanations.
+- Do NOT use code blocks (```).
+- Output pure JSON only.
+- Write descriptions in Korean.
+- Remember: Better to include MORE context than LESS. Viewers want to see the full story.
 """
 
         # Gemini API 호출
@@ -164,6 +177,9 @@ class TranscriptAnalyzer:
 
         # JSON 파싱
         highlights = self._parse_response(response_text)
+
+        # 인접 하이라이트 병합 (Gemini가 못할 경우 대비)
+        highlights = self._merge_adjacent_highlights(highlights)
 
         return highlights
 
@@ -199,6 +215,48 @@ class TranscriptAnalyzer:
             print(f"❌ JSON 파싱 오류: {e}")
             print(f"응답 텍스트:\n{response_text}")
             raise ValueError(f"Gemini 응답을 JSON으로 파싱할 수 없습니다: {e}")
+
+    def _merge_adjacent_highlights(self, highlights: List[Dict], gap_threshold: float = 3.0) -> List[Dict]:
+        """인접한 하이라이트를 병합
+
+        Args:
+            highlights: 하이라이트 리스트
+            gap_threshold: 병합 기준 간격(초) - 3초 이하면 병합
+
+        Returns:
+            병합된 하이라이트 리스트
+        """
+        if not highlights:
+            return highlights
+
+        # 시작 시간 기준 정렬
+        sorted_highlights = sorted(highlights, key=lambda x: x['start'])
+
+        merged = []
+        current = sorted_highlights[0].copy()
+
+        for next_h in sorted_highlights[1:]:
+            gap = next_h['start'] - current['end']
+
+            if gap <= gap_threshold:
+                # 병합: end 시간 연장, description 합침
+                current['end'] = next_h['end']
+                # 같은 타입이면 description 합침
+                if current['type'] == next_h['type']:
+                    current['description'] += f" / {next_h['description']}"
+                else:
+                    # 다른 타입이면 "goal + chance" 형식으로
+                    current['type'] = f"{current['type']}+{next_h['type']}"
+                    current['description'] += f" / {next_h['description']}"
+            else:
+                # 간격이 크면 별도 하이라이트로 유지
+                merged.append(current)
+                current = next_h.copy()
+
+        # 마지막 하이라이트 추가
+        merged.append(current)
+
+        return merged
 
     def _save_json(self, highlights: List[Dict], output_path: str) -> None:
         """하이라이트를 JSON 파일로 저장"""

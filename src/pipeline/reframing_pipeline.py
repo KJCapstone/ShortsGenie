@@ -45,11 +45,13 @@ class ReframingPipeline:
         output_path: str,
         use_soccernet_model: bool = True,
         use_temporal_filter: bool = True,
-        use_kalman_smoothing: bool = True
+        use_kalman_smoothing: bool = True,
+        scene_metadata_path: Optional[str] = None
     ) -> Dict[str, any]:
         """Process a pre-extracted goal clip with SoccerNet detection.
 
         This method implements PHASE 2 of the pipeline:
+        0. Load scene metadata (optional, scene-aware feature)
         1. Detect objects with SoccerNet YOLO
         2. Apply temporal filtering to ball trajectory
         3. Calculate weighted ROI centers
@@ -62,6 +64,7 @@ class ReframingPipeline:
             use_soccernet_model: Use SoccerNet fine-tuned model (vs generic YOLO)
             use_temporal_filter: Apply temporal filtering to ball trajectory
             use_kalman_smoothing: Apply Kalman smoothing to ROI trajectory
+            scene_metadata_path: Path to auto_tagger JSON (optional, for scene-aware ROI)
 
         Returns:
             Dict with processing statistics:
@@ -79,14 +82,46 @@ class ReframingPipeline:
         print(f"[Pipeline] SoccerNet model: {use_soccernet_model}")
         print(f"[Pipeline] Temporal filter: {use_temporal_filter}")
         print(f"[Pipeline] Kalman smoothing: {use_kalman_smoothing}")
+        print(f"[Pipeline] Scene awareness: {scene_metadata_path is not None}")
         print()
+
+        # Step 0: Load scene metadata (optional, scene-aware feature)
+        scene_manager = None
+        if scene_metadata_path and self.config.scene.enabled:
+            try:
+                from src.scene.scene_metadata import load_from_auto_tagger_json
+                from src.scene.scene_manager import SceneManager
+
+                # We need fps, so we'll load it after getting video info
+                # For now, mark that we need to load it
+                scene_metadata_to_load = scene_metadata_path
+            except ImportError:
+                print("[Warning] Scene module not found, disabling scene awareness")
+                scene_metadata_to_load = None
+        else:
+            scene_metadata_to_load = None
 
         # Step 1: Initialize components
         print("[Step 1/6] Initializing components...")
-        if use_soccernet_model:
+
+        # Initialize detector based on config backend
+        backend = self.config.detection.detector_backend
+
+        if backend == "footandball":
+            from src.core.footandball_detector import FootAndBallDetector
+            detector = FootAndBallDetector(
+                model_path=self.config.detection.footandball_model_path,
+                ball_threshold=self.config.detection.footandball_ball_threshold,
+                player_threshold=self.config.detection.footandball_player_threshold,
+                device=None  # Auto-detect (MPS/CUDA/CPU)
+            )
+            print(f"[Pipeline] Using FootAndBall detector")
+        elif backend == "soccernet" or use_soccernet_model:
             detector = SoccerNetDetector(self.config.detection)
-        else:
+            print(f"[Pipeline] Using SoccerNet YOLO detector")
+        else:  # backend == "yolo"
             detector = ObjectDetector(self.config.detection)
+            print(f"[Pipeline] Using generic YOLO detector")
 
         if use_temporal_filter:
             temporal_filter = TemporalBallFilter()
@@ -117,13 +152,29 @@ class ReframingPipeline:
             frame_height = reader.height
             fps = reader.fps
 
+            # Now load scene metadata if requested (we have fps now)
+            if scene_metadata_to_load:
+                try:
+                    from src.scene.scene_metadata import load_from_auto_tagger_json
+                    from src.scene.scene_manager import SceneManager
+
+                    print(f"\n[Step 0/6] Loading scene metadata from {scene_metadata_to_load}...")
+                    metadata = load_from_auto_tagger_json(scene_metadata_to_load, fps)
+                    scene_manager = SceneManager(metadata)
+                    print(f"[Scene] ✓ Loaded {len(metadata.segments)} scenes")
+                except Exception as e:
+                    print(f"[Warning] Failed to load scene metadata: {e}")
+                    scene_manager = None
+
             for frame_num, frame in enumerate(reader):
-                if use_soccernet_model and hasattr(detector, 'detect_frame_multi_ball'):
+                # All detectors now have the same interface
+                if hasattr(detector, 'detect_frame_multi_ball'):
+                    # SoccerNet-specific multi-ball detection
                     balls, players = detector.detect_frame_multi_ball(
                         frame, frame_num, frame_num / fps
                     )
                 else:
-                    # Fallback for generic detector
+                    # Generic interface: works for YOLO, SoccerNet (single-ball mode), and FootAndBall
                     frame_detections = detector.detect_frame(frame, frame_num, frame_num / fps)
                     balls = frame_detections.ball_detections
                     players = frame_detections.person_detections
@@ -169,14 +220,15 @@ class ReframingPipeline:
                     ball_trajectory.confidences.append(0.0)
                     ball_trajectory.is_interpolated.append(True)
 
-        # Step 4: Calculate ROI trajectory
+        # Step 4: Calculate ROI trajectory (with scene awareness if available)
         print("\n[Step 4/6] Calculating ROI trajectory...")
         roi_trajectory = roi_calculator.calculate_roi_trajectory(
             ball_trajectory,
             player_detections_per_frame,
             frame_width,
             frame_height,
-            total_frames
+            total_frames,
+            scene_manager=scene_manager  # Pass scene manager for scene-aware ROI
         )
         print(f"[ROICalculator] ✓ Calculated {len(roi_trajectory)} ROIs")
 

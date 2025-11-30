@@ -326,24 +326,27 @@ class SelectPage(QWidget):
             if item.widget():
                 item.widget().deleteLater()
         
-        # Add highlight cards in 3-column grid (1 row only)
-        for i, highlight in enumerate(highlights):
-            if i >= 3:  # Only show first 3 highlights
-                break
-                
-            col = i  # Column 0, 1, 2
-            
+        # Add only the first highlight card (centered)
+        if highlights:
+            highlight = highlights[0]  # 첫 번째 하이라이트만 사용
+        
             card = HighlightCard(
-                index=i,
-                title=highlight.get('title', f'하이라이트 #{i+1}'),
+                index=0,
+                title=highlight.get('title', '하이라이트 #1'),
                 description=highlight.get('description', '하이라이트 설명'),
                 video_path=highlight.get('video_path', None)
             )
 
             # Connect card click signal to result page signal
             card.video_clicked.connect(self._on_card_clicked)
-            
-            self.grid_layout.addWidget(card, 0, col)
+        
+            # Add card to center (row 0, column 1 with column span)
+            # Use column stretch to center the card
+            self.grid_layout.addWidget(card, 0, 1, Qt.AlignCenter)
+            self.grid_layout.setColumnStretch(0, 1)  # Left stretch
+            self.grid_layout.setColumnStretch(1, 0)  # Center (no stretch)
+            self.grid_layout.setColumnStretch(2, 1)  # Right stretch
+        
             self.highlight_cards.append(card)
         
         # Log for debugging

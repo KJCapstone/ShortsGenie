@@ -282,13 +282,13 @@ class VideoPreviewPage(QWidget):
         container_layout.setSpacing(20)
         
         # Left side: Video list
-        left_panel = self._create_left_panel()
+        #left_panel = self._create_left_panel()
         
         # Right side: Video player
         right_panel = self._create_right_panel()
         
-        container_layout.addWidget(left_panel, stretch=35)
-        container_layout.addWidget(right_panel, stretch=65)
+        #container_layout.addWidget(left_panel, stretch=35)
+        container_layout.addWidget(right_panel, stretch=100)
         
         layout.addWidget(container_frame)
         
@@ -381,7 +381,7 @@ class VideoPreviewPage(QWidget):
         self.complete_button.clicked.connect(self._on_complete_button_clicked)
         
         button_layout.addStretch()
-        button_layout.addWidget(self.edit_button)
+        #button_layout.addWidget(self.edit_button)
         button_layout.addWidget(self.complete_button)
         
         layout.addWidget(self.video_widget)
@@ -564,34 +564,34 @@ class VideoPreviewPage(QWidget):
         self.current_index = selected_index # 선택된 인덱스로 설정
         
         # Clear existing items
-        self.video_items.clear()
-        while self.video_list_layout.count() > 1:  # Keep the stretch
-            item = self.video_list_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        #self.video_items.clear()
+        #while self.video_list_layout.count() > 1:  # Keep the stretch
+        #    item = self.video_list_layout.takeAt(0)
+        #    if item.widget():
+        #        item.widget().deleteLater()
         
         # Create video items (only for highlights with valid video_path)
-        valid_index = 0
-        for i, highlight in enumerate(highlights):
-            video_path = highlight.get('video_path', None)
+        #valid_index = 0
+        #for i, highlight in enumerate(highlights):
+        #    video_path = highlight.get('video_path', None)
 
             # Skip highlights without valid video files
-            if not video_path:
-                continue
+        #    if not video_path:
+        #        continue
 
-            title = highlight.get('title', f'후보 {valid_index+1} 영상')
+        #    title = highlight.get('title', f'후보 {valid_index+1} 영상')
 
-            item = VideoListItem(
-                index=valid_index,
-                title=title,
-                video_path=video_path,
-                is_selected=(valid_index == selected_index)
-            )
-            item.clicked.connect(self._on_video_item_clicked)
+        #    item = VideoListItem(
+        #        index=valid_index,
+        #        title=title,
+        #        video_path=video_path,
+        #        is_selected=(valid_index == selected_index)
+        #    )
+        #    item.clicked.connect(self._on_video_item_clicked)
 
-            self.video_list_layout.insertWidget(valid_index + 1, item)
-            self.video_items.append(item)
-            valid_index += 1
+        #    self.video_list_layout.insertWidget(valid_index + 1, item)
+        #    self.video_items.append(item)
+        #    valid_index += 1
         
         # Load first video
         if highlights and selected_index < len(highlights):

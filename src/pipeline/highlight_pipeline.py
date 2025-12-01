@@ -440,21 +440,8 @@ class HighlightPipeline:
             app_config.detection.confidence_threshold = self.config.reframing.confidence_threshold
 
             # Pass through detector backend from reframing config
-            # This allows FootAndBall or other detector backends to be used
             if hasattr(self.config.reframing, 'detector_backend'):
                 app_config.detection.detector_backend = self.config.reframing.detector_backend
-
-                # If using FootAndBall, pass through its specific settings
-                if self.config.reframing.detector_backend == "footandball":
-                    app_config.detection.footandball_model_path = getattr(
-                        self.config.reframing, 'footandball_model_path', None
-                    )
-                    app_config.detection.footandball_ball_threshold = getattr(
-                        self.config.reframing, 'footandball_ball_threshold', 0.5
-                    )
-                    app_config.detection.footandball_player_threshold = getattr(
-                        self.config.reframing, 'footandball_player_threshold', 0.5
-                    )
 
             self._reframing_pipeline = ReframingPipeline(app_config)
 

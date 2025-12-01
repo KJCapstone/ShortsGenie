@@ -43,8 +43,8 @@ def get_model_path(model_name: str) -> str:
 @dataclass
 class VideoConfig:
     """Video processing configuration."""
-    output_width: int = 720   # Reduced from 1080 for smaller file size
-    output_height: int = 1280  # Reduced from 1920 (still HD quality for shorts)
+    output_width: int = 1080   # Full HD width for vertical video
+    output_height: int = 1920  # Full HD height (9:16 aspect ratio)
     fps: int = 30
     codec: str = "libx264"
     audio_codec: str = "aac"

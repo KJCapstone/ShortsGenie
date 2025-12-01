@@ -167,6 +167,7 @@ class MainPage(QWidget):
         title_label.setFont(QFont("Arial", 18, QFont.Bold))
         title_label.setStyleSheet("color: white; border: none; background-color: transparent;")
         
+        layout.addStretch()
         layout.addWidget(icon_label)
         layout.addWidget(title_label)
         layout.addStretch()
@@ -245,7 +246,7 @@ class MainPage(QWidget):
         inner_layout.addSpacing(20)
         
         # Option selection section
-        self._add_option_selection_section(inner_layout)
+        #self._add_option_selection_section(inner_layout)
         
         return frame
     

@@ -107,16 +107,7 @@ class ReframingPipeline:
         # Initialize detector based on config backend
         backend = self.config.detection.detector_backend
 
-        if backend == "footandball":
-            from src.core.footandball_detector import FootAndBallDetector
-            detector = FootAndBallDetector(
-                model_path=self.config.detection.footandball_model_path,
-                ball_threshold=self.config.detection.footandball_ball_threshold,
-                player_threshold=self.config.detection.footandball_player_threshold,
-                device=None  # Auto-detect (MPS/CUDA/CPU)
-            )
-            print(f"[Pipeline] Using FootAndBall detector")
-        elif backend == "soccernet" or use_soccernet_model:
+        if backend == "soccernet" or use_soccernet_model:
             detector = SoccerNetDetector(self.config.detection)
             print(f"[Pipeline] Using SoccerNet YOLO detector")
         else:  # backend == "yolo"
@@ -174,7 +165,7 @@ class ReframingPipeline:
                         frame, frame_num, frame_num / fps
                     )
                 else:
-                    # Generic interface: works for YOLO, SoccerNet (single-ball mode), and FootAndBall
+                    # Generic interface: works for YOLO and SoccerNet (single-ball mode)
                     frame_detections = detector.detect_frame(frame, frame_num, frame_num / fps)
                     balls = frame_detections.ball_detections
                     players = frame_detections.person_detections

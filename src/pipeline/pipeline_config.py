@@ -107,12 +107,7 @@ class ReframingConfig(ModuleConfig):
     confidence_threshold: float = 0.05  # Low for high recall
 
     # Detector backend selection
-    detector_backend: str = "yolo"  # Options: "yolo", "soccernet", "footandball"
-
-    # FootAndBall-specific settings (if detector_backend == "footandball")
-    footandball_model_path: Optional[str] = None  # Auto-detect if None
-    footandball_ball_threshold: float = 0.5
-    footandball_player_threshold: float = 0.5
+    detector_backend: str = "yolo"  # Options: "yolo", "soccernet"
 
     # Filtering
     use_temporal_filter: bool = True
@@ -130,11 +125,11 @@ class VideoEditingConfig(ModuleConfig):
     priority: int = 6
 
     # Output format
-    output_width: int = 1080
-    output_height: int = 1920
+    output_width: int = 720   # Reduced from 1080 for smaller file size
+    output_height: int = 1280  # Reduced from 1920 (still HD quality for shorts)
     fps: int = 30
     codec: str = "libx264"
-    crf: int = 23  # Quality (lower = better)
+    crf: int = 28  # Quality (18-28 recommended, higher=smaller file, lower=better quality)
 
     # Clip parameters
     clip_padding_before: float = 5.0  # seconds before event
@@ -202,7 +197,7 @@ class PipelineConfig:
         # Goal-specific parameters
         config.max_highlights = 10
         config.min_highlight_duration = 15.0  # Goals need ~15-30s
-        config.max_highlight_duration = 35.0
+        config.max_highlight_duration = 50.0  # Increased to 50s to accommodate longer highlights
 
         config.video_editing.clip_padding_before = 10.0  # Show build-up
         config.video_editing.clip_padding_after = 15.0   # Show celebration

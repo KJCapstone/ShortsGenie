@@ -43,12 +43,12 @@ def get_model_path(model_name: str) -> str:
 @dataclass
 class VideoConfig:
     """Video processing configuration."""
-    output_width: int = 1080
-    output_height: int = 1920
+    output_width: int = 1080   # Full HD width for vertical video
+    output_height: int = 1920  # Full HD height (9:16 aspect ratio)
     fps: int = 30
     codec: str = "libx264"
     audio_codec: str = "aac"
-    crf: int = 23  # Constant Rate Factor (lower = better quality)
+    crf: int = 28  # Constant Rate Factor (18-28 recommended, higher=smaller file)
 
 
 @dataclass
@@ -66,12 +66,7 @@ class DetectionConfig:
     match_thresh: float = 0.8  # IOU threshold for matching
 
     # Detector backend selection
-    detector_backend: str = "yolo"  # Options: "yolo", "soccernet", "footandball"
-
-    # FootAndBall-specific settings
-    footandball_model_path: str = None  # Auto-detect from FootAndBall/models/ if None
-    footandball_ball_threshold: float = 0.5  # Ball detection threshold
-    footandball_player_threshold: float = 0.5  # Player detection threshold
+    detector_backend: str = "yolo"  # Options: "yolo", "soccernet"
 
 
 @dataclass

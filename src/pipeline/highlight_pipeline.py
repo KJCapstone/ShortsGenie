@@ -137,14 +137,28 @@ class HighlightPipeline:
         self.config.temp_dir.mkdir(parents=True, exist_ok=True)
 
         # Process with enabled modules in priority order
+        # Define progress weights for each module (total = 85%)
+        module_weights = {
+            "ocr_detection": 20,      # Heavy module
+            "audio_analysis": 15,     # Medium module
+            "transcript_analysis": 50, # Heaviest (Whisper 30 + Gemini 20)
+            "scene_detection": 10,
+            "scene_classification": 5,
+            "reframing": 0,           # Handled separately
+            "video_editing": 0        # Handled separately
+        }
+
         enabled_modules = self.config.get_enabled_modules()
-        total_stages = len(enabled_modules)
+
+        # Calculate total weight and progress per module
+        current_progress = 0
 
         for idx, (module_name, module_config) in enumerate(enabled_modules):
-            stage_progress = int((idx / total_stages) * 90)  # Reserve 90-100% for post-processing
+            module_weight = module_weights.get(module_name, 10)
 
             try:
-                self._process_module(module_name, stage_progress)
+                self._process_module(module_name, current_progress, module_weight)
+                current_progress += module_weight
             except Exception as e:
                 error_msg = f"{module_name} failed: {str(e)}"
                 logger.error(error_msg, exc_info=True)
@@ -153,9 +167,10 @@ class HighlightPipeline:
                 # Continue with other modules (graceful degradation)
                 self._report_progress(
                     module_name,
-                    stage_progress,
+                    current_progress,
                     f"⚠️ {module_name} 실패, 다른 모듈로 계속 진행..."
                 )
+                current_progress += module_weight
 
         # Post-processing: merge, rank, and filter highlights
         self._report_progress("후처리", 90, "하이라이트 정리 및 순위 결정...")
@@ -180,21 +195,22 @@ class HighlightPipeline:
 
         return self.highlights
 
-    def _process_module(self, module_name: str, base_progress: int) -> None:
+    def _process_module(self, module_name: str, base_progress: int, module_weight: int) -> None:
         """Process a single module and update highlights.
 
         Args:
             module_name: Name of module to process
             base_progress: Base progress percentage for this module
+            module_weight: Weight (percentage points) allocated to this module
         """
         logger.info(f"\n--- Processing module: {module_name} ---")
 
         if module_name == "ocr_detection":
-            self._process_ocr_detection(base_progress)
+            self._process_ocr_detection(base_progress, module_weight)
         elif module_name == "audio_analysis":
-            self._process_audio_analysis(base_progress)
+            self._process_audio_analysis(base_progress, module_weight)
         elif module_name == "transcript_analysis":
-            self._process_transcript_analysis(base_progress)
+            self._process_transcript_analysis(base_progress, module_weight)
         elif module_name == "scene_detection":
             # Old PySceneDetect module - now handled per-clip with SceneClassifier
             logger.info("Scene detection now handled per-clip during reframing")
@@ -210,7 +226,7 @@ class HighlightPipeline:
         else:
             logger.warning(f"Unknown module: {module_name}")
 
-    def _process_ocr_detection(self, base_progress: int) -> None:
+    def _process_ocr_detection(self, base_progress: int, module_weight: int) -> None:
         """Process OCR-based goal detection."""
         self._report_progress("OCR 골 감지", base_progress, "스코어보드 분석 중...")
 
@@ -243,9 +259,9 @@ class HighlightPipeline:
             )
             self.highlights.append(highlight)
 
-        self._report_progress("OCR 골 감지", base_progress + 5, f"{len(goal_events)}개 골 발견!")
+        self._report_progress("OCR 골 감지", base_progress + module_weight, f"{len(goal_events)}개 골 발견!")
 
-    def _process_audio_analysis(self, base_progress: int) -> None:
+    def _process_audio_analysis(self, base_progress: int, module_weight: int) -> None:
         """Process audio-based highlight detection."""
         self._report_progress("오디오 분석", base_progress, "흥분도 분석 중...")
 
@@ -282,11 +298,20 @@ class HighlightPipeline:
                 )
                 self.highlights.append(highlight)
 
-        self._report_progress("오디오 분석", base_progress + 5, f"{len(audio_highlights)}개 구간 발견!")
+        self._report_progress("오디오 분석", base_progress + module_weight, f"{len(audio_highlights)}개 구간 발견!")
 
-    def _process_transcript_analysis(self, base_progress: int) -> None:
-        """Process transcript and AI analysis to generate highlights."""
-        self._report_progress("해설 분석", base_progress, "음성 인식 중...")
+    def _process_transcript_analysis(self, base_progress: int, module_weight: int) -> None:
+        """Process transcript and AI analysis to generate highlights.
+
+        Args:
+            base_progress: Starting progress percentage
+            module_weight: Total weight allocated to this module (e.g., 50)
+        """
+        # Whisper takes ~60% of this module's time, Gemini takes ~40%
+        whisper_weight = int(module_weight * 0.6)  # e.g., 30 out of 50
+        gemini_weight = int(module_weight * 0.4)   # e.g., 20 out of 50
+
+        self._report_progress("음성 인식", base_progress, "Whisper 모델 초기화 중...")
 
         # Step 1: Whisper transcription (optimized with beam_size=1)
         if self._whisper is None:
@@ -295,7 +320,11 @@ class HighlightPipeline:
                 language=self.config.transcript_analysis.language
             )
 
+        self._report_progress("음성 인식", base_progress + 5, "오디오 텍스트 변환 중... (약 10-30초 소요)")
+
         whisper_result = self._whisper.transcribe(str(self.video_path))
+
+        self._report_progress("음성 인식", base_progress + whisper_weight, "음성 인식 완료!")
 
         # Whisper returns dict with 'segments', 'text', 'language'
         if isinstance(whisper_result, dict) and 'segments' in whisper_result:
@@ -311,7 +340,7 @@ class HighlightPipeline:
 
         # Step 2: AI analysis to extract highlights
         if self.config.transcript_analysis.use_gemini:
-            self._report_progress("AI 분석", base_progress + 3, "Gemini로 하이라이트 추출 중...")
+            self._report_progress("AI 분석", base_progress + whisper_weight + 2, "Gemini로 하이라이트 추출 중... (약 10-60초 소요)")
 
             if self._transcript_analyzer is None:
                 self._transcript_analyzer = TranscriptAnalyzer(verbose=False)
@@ -326,7 +355,11 @@ class HighlightPipeline:
 
                 # Sort highlights by start time to ensure chronological order
                 ai_highlights = sorted(ai_highlights, key=lambda x: x.get('start', 0))
-                logger.info(f"Sorted highlights chronologically")
+                logger.info(f"Sorted {len(ai_highlights)} highlights chronologically")
+
+                # Debug: Print highlight order
+                for i, ai_hl in enumerate(ai_highlights):
+                    logger.debug(f"  Highlight {i+1}: {ai_hl.get('start', 0):.1f}s - {ai_hl.get('end', 0):.1f}s ({ai_hl.get('type', 'unknown')})")
 
                 # Convert to Highlight objects
                 for i, ai_hl in enumerate(ai_highlights):
@@ -376,7 +409,7 @@ class HighlightPipeline:
                 else:
                     logger.warning("No existing highlights to enhance - Gemini failed and no fallback highlights")
 
-        self._report_progress("해설 분석", base_progress + 5, f"{len(self.highlights)}개 하이라이트 추출 완료!")
+        self._report_progress("AI 분석", base_progress + module_weight, f"{len(self.highlights)}개 하이라이트 추출 완료!")
 
     def _post_process_highlights(self) -> None:
         """Post-process highlights: merge, filter, rank."""
@@ -387,11 +420,34 @@ class HighlightPipeline:
         # Step 1: Remove duplicates and overlaps
         self.highlights = self._merge_overlapping_highlights(self.highlights)
 
-        # Step 2: Filter by duration
-        self.highlights = [
-            h for h in self.highlights
-            if self.config.min_highlight_duration <= h.duration <= self.config.max_highlight_duration
-        ]
+        # Step 2: Filter by duration (with detailed logging)
+        logger.info(f"Filtering highlights by duration ({self.config.min_highlight_duration}s - {self.config.max_highlight_duration}s)")
+
+        filtered_highlights = []
+        for h in self.highlights:
+            if h.duration < self.config.min_highlight_duration:
+                logger.warning(
+                    f"⚠️  Highlight too short: '{h.title}' ({h.duration:.1f}s < {self.config.min_highlight_duration}s) "
+                    f"[{h.start_time:.1f}s - {h.end_time:.1f}s] - FILTERED OUT"
+                )
+            elif h.duration > self.config.max_highlight_duration:
+                logger.warning(
+                    f"⚠️  Highlight too long: '{h.title}' ({h.duration:.1f}s > {self.config.max_highlight_duration}s) "
+                    f"[{h.start_time:.1f}s - {h.end_time:.1f}s] - FILTERED OUT"
+                )
+                print(f"\n{'='*60}")
+                print(f"⚠️  DEBUG: Highlight exceeded max duration")
+                print(f"{'='*60}")
+                print(f"Title: {h.title}")
+                print(f"Duration: {h.duration:.1f}s (max allowed: {self.config.max_highlight_duration}s)")
+                print(f"Time range: {h.start_time:.1f}s - {h.end_time:.1f}s")
+                print(f"Description: {h.description[:100]}...")
+                print(f"Source: {h.source}")
+                print(f"{'='*60}\n")
+            else:
+                filtered_highlights.append(h)
+
+        self.highlights = filtered_highlights
 
         # Step 3: Sort by score (best first)
         self.highlights.sort(key=lambda h: h.score, reverse=True)
@@ -413,21 +469,8 @@ class HighlightPipeline:
             app_config.detection.confidence_threshold = self.config.reframing.confidence_threshold
 
             # Pass through detector backend from reframing config
-            # This allows FootAndBall or other detector backends to be used
             if hasattr(self.config.reframing, 'detector_backend'):
                 app_config.detection.detector_backend = self.config.reframing.detector_backend
-
-                # If using FootAndBall, pass through its specific settings
-                if self.config.reframing.detector_backend == "footandball":
-                    app_config.detection.footandball_model_path = getattr(
-                        self.config.reframing, 'footandball_model_path', None
-                    )
-                    app_config.detection.footandball_ball_threshold = getattr(
-                        self.config.reframing, 'footandball_ball_threshold', 0.5
-                    )
-                    app_config.detection.footandball_player_threshold = getattr(
-                        self.config.reframing, 'footandball_player_threshold', 0.5
-                    )
 
             self._reframing_pipeline = ReframingPipeline(app_config)
 
@@ -742,16 +785,21 @@ class HighlightPipeline:
         ]
         subprocess.run(audio_concat_cmd, check=True, capture_output=True)
 
-        # Step 4: Combine video + audio
+        # Step 4: Combine video + audio with H.264 compression
         output_path = self.config.output_dir / "final_shorts.mp4"
         combine_cmd = [
             'ffmpeg', '-y',
             '-i', str(temp_video),
             '-i', str(temp_audio),
-            '-c:v', 'copy',  # Copy video stream
-            '-c:a', 'aac',   # Re-encode audio to ensure compatibility
-            '-b:a', '128k',  # Audio bitrate
-            '-shortest',     # Match shortest stream
+            '-c:v', 'libx264',      # H.264 codec for better compression
+            '-preset', 'medium',     # Encoding speed (faster, fast, medium, slow, slower)
+            '-crf', '28',            # Quality (18-28 recommended, higher=smaller file)
+            '-maxrate', '3M',        # Max bitrate 3 Mbps (good for shorts)
+            '-bufsize', '6M',        # Buffer size
+            '-pix_fmt', 'yuv420p',   # Pixel format for compatibility
+            '-c:a', 'aac',           # AAC audio codec
+            '-b:a', '128k',          # Audio bitrate
+            '-shortest',             # Match shortest stream
             str(output_path)
         ]
 

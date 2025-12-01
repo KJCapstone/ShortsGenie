@@ -255,12 +255,18 @@ class ProgressPage(QWidget):
         """)
         frame_layout.addWidget(self.progress_bar)
 
-        # Status message
-        self.status_label = QLabel("영상 분석 중입니다...")
+        # Status message with loading animation
+        self.status_label = QLabel("영상 분석 중입니다")
         self.status_label.setFont(QFont("Arial", 10, QFont.Bold))
         self.status_label.setStyleSheet("color: #666666; border: none; background-color: transparent;")
         self.status_label.setAlignment(Qt.AlignCenter)
         frame_layout.addWidget(self.status_label)
+
+        # Loading animation state
+        self.loading_dots = 0
+        self.loading_timer = QTimer()
+        self.loading_timer.timeout.connect(self._update_loading_animation)
+        self.loading_timer.start(500)  # Update every 500ms
 
         return frame
     
@@ -549,6 +555,8 @@ class ProgressPage(QWidget):
         """
         logger.info(f"Stage changed: {stage}")
         self.current_stage = stage
+        # Update status label immediately
+        self.status_label.setText(f"{stage}...")
 
     @Slot(list)
     def _on_processing_completed(self, highlights: List[Dict]) -> None:
@@ -586,6 +594,27 @@ class ProgressPage(QWidget):
 
         # For now, emit empty results (could show error page instead)
         self.processing_completed.emit([])
+
+    def _update_loading_animation(self) -> None:
+        """Update loading animation (dots cycling)."""
+        if self.progress >= 100:
+            # Stop animation when complete
+            self.loading_timer.stop()
+            self.status_label.setText("처리 완료!")
+            return
+
+        # Cycle through 0, 1, 2, 3 dots
+        self.loading_dots = (self.loading_dots + 1) % 4
+        dots = "." * self.loading_dots
+        spaces = " " * (3 - self.loading_dots)  # Keep text width consistent
+
+        # Update status label with animated dots
+        base_text = "영상 분석 중입니다"
+        if self.current_stage:
+            # Use current stage name if available
+            base_text = self.current_stage
+
+        self.status_label.setText(f"{base_text}{dots}{spaces}")
 
     @Slot()
     def on_back_button_clicked(self) -> None:

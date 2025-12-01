@@ -6,6 +6,40 @@ from typing import Optional, Tuple
 from pathlib import Path
 
 
+def get_video_resolution(video_path: str) -> Tuple[int, int]:
+    """
+    Get video resolution (width, height) without loading frames.
+
+    This is a fast operation that only reads video metadata.
+
+    Args:
+        video_path: Path to video file
+
+    Returns:
+        Tuple of (width, height) in pixels
+
+    Raises:
+        ValueError: If video cannot be opened or resolution cannot be determined
+
+    Example:
+        >>> width, height = get_video_resolution("video.mp4")
+        >>> print(f"{width}x{height}")
+        1920x1080
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise ValueError(f"Cannot open video: {video_path}")
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.release()
+
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Invalid video resolution: {width}x{height}")
+
+    return (width, height)
+
+
 class VideoReader:
     """Simple video reader using OpenCV."""
 

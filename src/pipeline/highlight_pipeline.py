@@ -137,14 +137,28 @@ class HighlightPipeline:
         self.config.temp_dir.mkdir(parents=True, exist_ok=True)
 
         # Process with enabled modules in priority order
+        # Define progress weights for each module (total = 85%)
+        module_weights = {
+            "ocr_detection": 20,      # Heavy module
+            "audio_analysis": 15,     # Medium module
+            "transcript_analysis": 50, # Heaviest (Whisper 30 + Gemini 20)
+            "scene_detection": 10,
+            "scene_classification": 5,
+            "reframing": 0,           # Handled separately
+            "video_editing": 0        # Handled separately
+        }
+
         enabled_modules = self.config.get_enabled_modules()
-        total_stages = len(enabled_modules)
+
+        # Calculate total weight and progress per module
+        current_progress = 0
 
         for idx, (module_name, module_config) in enumerate(enabled_modules):
-            stage_progress = int((idx / total_stages) * 90)  # Reserve 90-100% for post-processing
+            module_weight = module_weights.get(module_name, 10)
 
             try:
-                self._process_module(module_name, stage_progress)
+                self._process_module(module_name, current_progress, module_weight)
+                current_progress += module_weight
             except Exception as e:
                 error_msg = f"{module_name} failed: {str(e)}"
                 logger.error(error_msg, exc_info=True)
@@ -153,9 +167,10 @@ class HighlightPipeline:
                 # Continue with other modules (graceful degradation)
                 self._report_progress(
                     module_name,
-                    stage_progress,
+                    current_progress,
                     f"⚠️ {module_name} 실패, 다른 모듈로 계속 진행..."
                 )
+                current_progress += module_weight
 
         # Post-processing: merge, rank, and filter highlights
         self._report_progress("후처리", 90, "하이라이트 정리 및 순위 결정...")
@@ -180,21 +195,22 @@ class HighlightPipeline:
 
         return self.highlights
 
-    def _process_module(self, module_name: str, base_progress: int) -> None:
+    def _process_module(self, module_name: str, base_progress: int, module_weight: int) -> None:
         """Process a single module and update highlights.
 
         Args:
             module_name: Name of module to process
             base_progress: Base progress percentage for this module
+            module_weight: Weight (percentage points) allocated to this module
         """
         logger.info(f"\n--- Processing module: {module_name} ---")
 
         if module_name == "ocr_detection":
-            self._process_ocr_detection(base_progress)
+            self._process_ocr_detection(base_progress, module_weight)
         elif module_name == "audio_analysis":
-            self._process_audio_analysis(base_progress)
+            self._process_audio_analysis(base_progress, module_weight)
         elif module_name == "transcript_analysis":
-            self._process_transcript_analysis(base_progress)
+            self._process_transcript_analysis(base_progress, module_weight)
         elif module_name == "scene_detection":
             # Old PySceneDetect module - now handled per-clip with SceneClassifier
             logger.info("Scene detection now handled per-clip during reframing")
@@ -210,7 +226,7 @@ class HighlightPipeline:
         else:
             logger.warning(f"Unknown module: {module_name}")
 
-    def _process_ocr_detection(self, base_progress: int) -> None:
+    def _process_ocr_detection(self, base_progress: int, module_weight: int) -> None:
         """Process OCR-based goal detection."""
         self._report_progress("OCR 골 감지", base_progress, "스코어보드 분석 중...")
 
@@ -243,9 +259,9 @@ class HighlightPipeline:
             )
             self.highlights.append(highlight)
 
-        self._report_progress("OCR 골 감지", base_progress + 5, f"{len(goal_events)}개 골 발견!")
+        self._report_progress("OCR 골 감지", base_progress + module_weight, f"{len(goal_events)}개 골 발견!")
 
-    def _process_audio_analysis(self, base_progress: int) -> None:
+    def _process_audio_analysis(self, base_progress: int, module_weight: int) -> None:
         """Process audio-based highlight detection."""
         self._report_progress("오디오 분석", base_progress, "흥분도 분석 중...")
 
@@ -282,11 +298,20 @@ class HighlightPipeline:
                 )
                 self.highlights.append(highlight)
 
-        self._report_progress("오디오 분석", base_progress + 5, f"{len(audio_highlights)}개 구간 발견!")
+        self._report_progress("오디오 분석", base_progress + module_weight, f"{len(audio_highlights)}개 구간 발견!")
 
-    def _process_transcript_analysis(self, base_progress: int) -> None:
-        """Process transcript and AI analysis to generate highlights."""
-        self._report_progress("해설 분석", base_progress, "음성 인식 중...")
+    def _process_transcript_analysis(self, base_progress: int, module_weight: int) -> None:
+        """Process transcript and AI analysis to generate highlights.
+
+        Args:
+            base_progress: Starting progress percentage
+            module_weight: Total weight allocated to this module (e.g., 50)
+        """
+        # Whisper takes ~60% of this module's time, Gemini takes ~40%
+        whisper_weight = int(module_weight * 0.6)  # e.g., 30 out of 50
+        gemini_weight = int(module_weight * 0.4)   # e.g., 20 out of 50
+
+        self._report_progress("음성 인식", base_progress, "Whisper 모델 초기화 중...")
 
         # Step 1: Whisper transcription (optimized with beam_size=1)
         if self._whisper is None:
@@ -295,7 +320,11 @@ class HighlightPipeline:
                 language=self.config.transcript_analysis.language
             )
 
+        self._report_progress("음성 인식", base_progress + 5, "오디오 텍스트 변환 중... (약 10-30초 소요)")
+
         whisper_result = self._whisper.transcribe(str(self.video_path))
+
+        self._report_progress("음성 인식", base_progress + whisper_weight, "음성 인식 완료!")
 
         # Whisper returns dict with 'segments', 'text', 'language'
         if isinstance(whisper_result, dict) and 'segments' in whisper_result:
@@ -311,7 +340,7 @@ class HighlightPipeline:
 
         # Step 2: AI analysis to extract highlights
         if self.config.transcript_analysis.use_gemini:
-            self._report_progress("AI 분석", base_progress + 3, "Gemini로 하이라이트 추출 중...")
+            self._report_progress("AI 분석", base_progress + whisper_weight + 2, "Gemini로 하이라이트 추출 중... (약 10-60초 소요)")
 
             if self._transcript_analyzer is None:
                 self._transcript_analyzer = TranscriptAnalyzer(verbose=False)
@@ -380,7 +409,7 @@ class HighlightPipeline:
                 else:
                     logger.warning("No existing highlights to enhance - Gemini failed and no fallback highlights")
 
-        self._report_progress("해설 분석", base_progress + 5, f"{len(self.highlights)}개 하이라이트 추출 완료!")
+        self._report_progress("AI 분석", base_progress + module_weight, f"{len(self.highlights)}개 하이라이트 추출 완료!")
 
     def _post_process_highlights(self) -> None:
         """Post-process highlights: merge, filter, rank."""

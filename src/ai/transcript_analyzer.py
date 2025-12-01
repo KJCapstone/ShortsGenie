@@ -132,33 +132,47 @@ Requirements:
    - "goal": Actual goals scored
    - "chance": Clear goal-scoring opportunities (shots on target, near misses)
 
-2. Timing is CRITICAL:
-   - Include sufficient context BEFORE the moment (build-up play)
-   - Include sufficient context AFTER the moment (celebrations, replays)
-   - Analyze the commentary to determine appropriate padding:
-     * If commentary describes build-up → include 3-5 seconds before
-     * If commentary mentions celebration → include 3-5 seconds after
-     * If commentary mentions replay → include additional 5 seconds
-   - Minimum clip duration: 15 seconds
+2. **Create SEPARATE highlights for EACH distinct event**:
+   - Do NOT merge multiple events into one giant highlight
+   - Each goal or chance should be its own highlight
+   - Maximum duration per highlight: **40 seconds**
+   - Minimum duration per highlight: 15 seconds
    - Recommended: 20-30 seconds per highlight
 
-3. Merge adjacent highlights:
+3. Timing is CRITICAL:
+   - Include sufficient context BEFORE the moment (build-up play, 3-5 seconds)
+   - Include sufficient context AFTER the moment (celebrations/replays, 3-5 seconds)
+   - Analyze the commentary to determine appropriate padding
+   - **Do NOT create highlights longer than 40 seconds**
+
+4. **Sort highlights by TIME (chronological order)**:
+   - ALWAYS return highlights in chronological order (earliest first)
+   - Never put a later event before an earlier event
+
+5. Merge adjacent highlights ONLY if necessary:
    - If two highlights are within 3 seconds of each other, merge them into ONE highlight
    - Example: If highlight A ends at 350s and highlight B starts at 352s → merge into single highlight from A.start to B.end
+   - **After merging, if duration exceeds 40s, split into separate highlights**
 
-4. Time format:
-   - Convert "MM:SS.S" format to seconds (e.g., "1:24:30.2" = 5070.2 seconds)
+6. Time format:
+   - Convert "[MM:SS.S]" or "MM:SS" format to seconds (e.g., "[1:24.5]" = 84.5 seconds)
    - start: beginning of context (including build-up)
    - end: end of context (including celebration/replay)
 
-5. Output format must be a JSON array:
+7. Output format must be a JSON array:
 ```json
 [
   {{
-    "start": 5065.0,
-    "end": 5090.0,
+    "start": 24.0,
+    "end": 52.0,
     "type": "goal",
-    "description": "황의조 득점 (1-0). 손흥민의 PK를 무슬레라가 막았으나, 황의조가 리바운드 볼을 밀어 넣어 선제골 기록."
+    "description": "마트타 헤더골 (1-0). 라마스 골키퍼를 상대로 강력한 헤더로 선제골 기록."
+  }},
+  {{
+    "start": 112.0,
+    "end": 126.0,
+    "type": "goal",
+    "description": "지극해지 프리킥 원더골 (2-0). 환상적인 각도에서 골망을 흔들며 추가골 기록."
   }}
 ]
 ```
@@ -168,7 +182,9 @@ Requirements:
 - Do NOT use code blocks (```).
 - Output pure JSON only.
 - Write descriptions in Korean.
-- Remember: Better to include MORE context than LESS. Viewers want to see the full story.
+- **CRITICAL**: Return highlights in CHRONOLOGICAL ORDER (sorted by start time)
+- **CRITICAL**: Each highlight must be 15-40 seconds. Do NOT create highlights longer than 40 seconds.
+- **CRITICAL**: Create SEPARATE highlights for each distinct event (goal/chance).
 """
 
         # Gemini API 호출

@@ -326,7 +326,11 @@ class HighlightPipeline:
 
                 # Sort highlights by start time to ensure chronological order
                 ai_highlights = sorted(ai_highlights, key=lambda x: x.get('start', 0))
-                logger.info(f"Sorted highlights chronologically")
+                logger.info(f"Sorted {len(ai_highlights)} highlights chronologically")
+
+                # Debug: Print highlight order
+                for i, ai_hl in enumerate(ai_highlights):
+                    logger.debug(f"  Highlight {i+1}: {ai_hl.get('start', 0):.1f}s - {ai_hl.get('end', 0):.1f}s ({ai_hl.get('type', 'unknown')})")
 
                 # Convert to Highlight objects
                 for i, ai_hl in enumerate(ai_highlights):
@@ -387,11 +391,34 @@ class HighlightPipeline:
         # Step 1: Remove duplicates and overlaps
         self.highlights = self._merge_overlapping_highlights(self.highlights)
 
-        # Step 2: Filter by duration
-        self.highlights = [
-            h for h in self.highlights
-            if self.config.min_highlight_duration <= h.duration <= self.config.max_highlight_duration
-        ]
+        # Step 2: Filter by duration (with detailed logging)
+        logger.info(f"Filtering highlights by duration ({self.config.min_highlight_duration}s - {self.config.max_highlight_duration}s)")
+
+        filtered_highlights = []
+        for h in self.highlights:
+            if h.duration < self.config.min_highlight_duration:
+                logger.warning(
+                    f"⚠️  Highlight too short: '{h.title}' ({h.duration:.1f}s < {self.config.min_highlight_duration}s) "
+                    f"[{h.start_time:.1f}s - {h.end_time:.1f}s] - FILTERED OUT"
+                )
+            elif h.duration > self.config.max_highlight_duration:
+                logger.warning(
+                    f"⚠️  Highlight too long: '{h.title}' ({h.duration:.1f}s > {self.config.max_highlight_duration}s) "
+                    f"[{h.start_time:.1f}s - {h.end_time:.1f}s] - FILTERED OUT"
+                )
+                print(f"\n{'='*60}")
+                print(f"⚠️  DEBUG: Highlight exceeded max duration")
+                print(f"{'='*60}")
+                print(f"Title: {h.title}")
+                print(f"Duration: {h.duration:.1f}s (max allowed: {self.config.max_highlight_duration}s)")
+                print(f"Time range: {h.start_time:.1f}s - {h.end_time:.1f}s")
+                print(f"Description: {h.description[:100]}...")
+                print(f"Source: {h.source}")
+                print(f"{'='*60}\n")
+            else:
+                filtered_highlights.append(h)
+
+        self.highlights = filtered_highlights
 
         # Step 3: Sort by score (best first)
         self.highlights.sort(key=lambda h: h.score, reverse=True)

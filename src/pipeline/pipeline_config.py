@@ -202,7 +202,7 @@ class PipelineConfig:
         # Goal-specific parameters
         config.max_highlights = 10
         config.min_highlight_duration = 15.0  # Goals need ~15-30s
-        config.max_highlight_duration = 35.0
+        config.max_highlight_duration = 50.0  # Increased to 50s to accommodate longer highlights
 
         config.video_editing.clip_padding_before = 10.0  # Show build-up
         config.video_editing.clip_padding_after = 15.0   # Show celebration

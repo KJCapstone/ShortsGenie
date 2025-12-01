@@ -43,12 +43,12 @@ def get_model_path(model_name: str) -> str:
 @dataclass
 class VideoConfig:
     """Video processing configuration."""
-    output_width: int = 1080
-    output_height: int = 1920
+    output_width: int = 720   # Reduced from 1080 for smaller file size
+    output_height: int = 1280  # Reduced from 1920 (still HD quality for shorts)
     fps: int = 30
     codec: str = "libx264"
     audio_codec: str = "aac"
-    crf: int = 23  # Constant Rate Factor (lower = better quality)
+    crf: int = 28  # Constant Rate Factor (18-28 recommended, higher=smaller file)
 
 
 @dataclass

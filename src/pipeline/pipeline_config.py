@@ -125,11 +125,11 @@ class VideoEditingConfig(ModuleConfig):
     priority: int = 6
 
     # Output format
-    output_width: int = 1080
-    output_height: int = 1920
+    output_width: int = 720   # Reduced from 1080 for smaller file size
+    output_height: int = 1280  # Reduced from 1920 (still HD quality for shorts)
     fps: int = 30
     codec: str = "libx264"
-    crf: int = 23  # Quality (lower = better)
+    crf: int = 28  # Quality (18-28 recommended, higher=smaller file, lower=better quality)
 
     # Clip parameters
     clip_padding_before: float = 5.0  # seconds before event

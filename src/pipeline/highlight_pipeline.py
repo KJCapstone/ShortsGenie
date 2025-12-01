@@ -756,16 +756,21 @@ class HighlightPipeline:
         ]
         subprocess.run(audio_concat_cmd, check=True, capture_output=True)
 
-        # Step 4: Combine video + audio
+        # Step 4: Combine video + audio with H.264 compression
         output_path = self.config.output_dir / "final_shorts.mp4"
         combine_cmd = [
             'ffmpeg', '-y',
             '-i', str(temp_video),
             '-i', str(temp_audio),
-            '-c:v', 'copy',  # Copy video stream
-            '-c:a', 'aac',   # Re-encode audio to ensure compatibility
-            '-b:a', '128k',  # Audio bitrate
-            '-shortest',     # Match shortest stream
+            '-c:v', 'libx264',      # H.264 codec for better compression
+            '-preset', 'medium',     # Encoding speed (faster, fast, medium, slow, slower)
+            '-crf', '28',            # Quality (18-28 recommended, higher=smaller file)
+            '-maxrate', '3M',        # Max bitrate 3 Mbps (good for shorts)
+            '-bufsize', '6M',        # Buffer size
+            '-pix_fmt', 'yuv420p',   # Pixel format for compatibility
+            '-c:a', 'aac',           # AAC audio codec
+            '-b:a', '128k',          # Audio bitrate
+            '-shortest',             # Match shortest stream
             str(output_path)
         ]
 

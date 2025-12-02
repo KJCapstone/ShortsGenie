@@ -89,6 +89,21 @@ class PipelineWorker(QThread):
             # Convert to dictionaries for GUI
             highlight_dicts = [h.to_dict() for h in highlights]
 
+            # Check for processing errors (e.g., no highlights extracted)
+            if self.pipeline.processing_errors:
+                # Add warnings to first highlight metadata if any
+                if highlight_dicts:
+                    if 'warnings' not in highlight_dicts[0]:
+                        highlight_dicts[0]['warnings'] = []
+                    highlight_dicts[0]['warnings'].extend(self.pipeline.processing_errors)
+                else:
+                    # No highlights and errors - emit warning
+                    for error in self.pipeline.processing_errors:
+                        if "지루하거나 오디오에 문제" in error:
+                            logger.warning(f"Pipeline warning: {error}")
+                            self.processing_failed.emit(error)
+                            return
+
             logger.info(f"PipelineWorker completed: {len(highlights)} highlights")
             self.processing_completed.emit(highlight_dicts)
 

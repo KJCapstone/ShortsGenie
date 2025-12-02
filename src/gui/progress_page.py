@@ -599,7 +599,32 @@ class ProgressPage(QWidget):
         print(f"✗ Processing Failed: {error}")
         print("=" * 60 + "\n")
 
-        # For now, emit empty results (could show error page instead)
+        # Show error dialog to user
+        from PySide6.QtWidgets import QMessageBox
+
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setWindowTitle("처리 실패")
+
+        # Customize message based on error type
+        if "지루하거나 오디오에 문제" in error:
+            msg_box.setText("하이라이트 추출 실패")
+            msg_box.setInformativeText(
+                "이 경기는 매우 지루하거나 오디오에 문제가 있을 수 있습니다.\n\n"
+                "가능한 원인:\n"
+                "• 골이나 결정적 찬스가 없는 경기 (0-0 무승부 등)\n"
+                "• 음성 인식 실패 또는 중계 음성 없음\n"
+                "• 오디오 품질이 매우 낮음\n\n"
+                "다른 경기 영상으로 시도해보세요."
+            )
+        else:
+            msg_box.setText("처리 중 오류가 발생했습니다")
+            msg_box.setInformativeText(error)
+
+        msg_box.setStandardButtons(QMessageBox.Ok)
+        msg_box.exec()
+
+        # Emit empty results to return to main page
         self.processing_completed.emit([])
 
     def _update_loading_animation(self) -> None:

@@ -4,7 +4,7 @@ from typing import Dict
 from pathlib import Path
 from PySide6.QtWidgets import QMainWindow, QStackedWidget, QMessageBox, QProgressDialog, QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout
 from PySide6.QtCore import Slot, Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QFontDatabase
 from .main_page import MainPage
 from .progress_page import ProgressPage
 from .highlight_selector import SelectPage
@@ -15,7 +15,7 @@ from src.utils.quality_presets import get_capped_preset_for_source
 from src.utils.video_utils import get_video_resolution
 
 # Constrants
-WINDOW_TITLE = "Shorts Genie"
+WINDOW_TITLE = "ShortsGenie"
 WINDOW_MIN_WIDTH = 800
 WINDOW_MIN_HEIGHT = 600
 WINDOW_INIT_WIDTH = 800
@@ -381,7 +381,7 @@ class MainWindow(QMainWindow):
 
         # Success icon and title
         title_label = QLabel("✅ 출력 완료!")
-        title_label.setFont(QFont("맑은 고딕", 16, QFont.Bold))
+        title_label.setFont(QFont("Pretendard", 16, QFont.Bold))
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
 
@@ -457,3 +457,42 @@ class MainWindow(QMainWindow):
         """
         dialog.accept()
         self.stacked_widget.setCurrentIndex(0)  # Navigate to MainPage
+        
+        
+if __name__ == "__main__":
+    import sys
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication(sys.argv)
+    
+    # --- 폰트 로드 로직 시작 ---
+    
+    # 1. 폰트 파일 경로 찾기
+    # 현재 파일(main_window.py)의 위치: src/gui
+    # 폰트 위치: src/gui/../fonts/NanumSquareR.ttf (즉, src/fonts)
+    current_dir = Path(__file__).resolve().parent
+    font_path = current_dir.parent / "fonts" / "Pretendard-Bold.ttf" # <-- 파일명 정확히 확인!
+
+    # 2. 폰트 데이터베이스에 추가
+    font_id = QFontDatabase.addApplicationFont(str(font_path))
+    
+    if font_id != -1:
+        # 폰트가 성공적으로 로드됨
+        font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
+        print(f"폰트 로드 성공: {font_family}")
+        
+        # 앱 전체에 적용 (크기 10)
+        app.setFont(QFont(font_family, 10))
+        
+        # [추가] 2. 스타일시트로 모든 위젯에 강제 적용 (이게 강력합니다!)
+        app.setStyleSheet(f"* {{ font-family: '{font_family}'; }}")
+    else:
+        print(f"폰트 파일을 찾을 수 없습니다: {font_path}")
+        print("기본 폰트로 실행합니다.")
+        
+    # --- 폰트 로드 로직 끝 ---
+
+    window = MainWindow()
+    window.show()
+
+    sys.exit(app.exec())

@@ -27,11 +27,11 @@ DASHED_FRAME_BG_COLOR = "#F4F2FB"
 DASHED_LINE_COLOR = "#CCCCCC"
 
 
-# Processing steps
+# Processing steps (updated to match actual pipeline execution)
 PROCESSING_STEPS = [
-    "중계 내용 텍스트 변환",
-    "객체 인식",
-    "이벤트 태깅"
+    "음성 인식 (Whisper)",      # Step 1: Whisper transcription (5-35%)
+    "AI 하이라이트 분석",        # Step 2: Gemini AI analysis (35-60%)
+    "영상 생성 및 편집"          # Step 3: Post-processing + Video generation (60-100%)
 ]
 
 
@@ -523,32 +523,34 @@ class ProgressPage(QWidget):
         # Update overall progress
         self.progress = progress
 
-        # Map stage to step index
+        # Map stage to step index (updated to match actual execution flow)
         stage_to_step = {
             "초기화": 0,
-            "OCR 골 감지": 0,
-            "오디오 분석": 1,
-            "해설 분석": 1,
-            "AI 분석": 1,
-            "장면 전환 감지": 2,
-            "후처리": 2,
+            "음성 인식": 0,       # Step 1: Whisper transcription (5-35%)
+            "AI 분석": 1,         # Step 2: Gemini analysis (35-60%)
+            "해설 분석": 1,       # Legacy fallback
+            "후처리": 2,          # Step 3: Post-processing + Video gen (60-100%)
             "영상 생성": 2,
+            "영상 병합": 2,
             "완료": 2
         }
 
         step_idx = stage_to_step.get(stage, 0)
         self.current_step = step_idx
 
-        # Update step progress (distribute 0-100 across 3 steps)
-        if progress <= 33:
-            self.step_progress[0] = progress * 3.03
-        elif progress <= 66:
+        # Update step progress based on actual progress ranges
+        # Step 1: 0-35% (Whisper transcription)
+        # Step 2: 35-60% (Gemini AI analysis)
+        # Step 3: 60-100% (Post-processing + Video generation)
+        if progress <= 35:
+            self.step_progress[0] = (progress / 35) * 100
+        elif progress <= 60:
             self.step_progress[0] = 100
-            self.step_progress[1] = (progress - 33) * 3.03
+            self.step_progress[1] = ((progress - 35) / 25) * 100
         else:
             self.step_progress[0] = 100
             self.step_progress[1] = 100
-            self.step_progress[2] = (progress - 66) * 2.97
+            self.step_progress[2] = ((progress - 60) / 40) * 100
 
         # Update UI
         self.update_progress_display()

@@ -152,16 +152,31 @@ class HighlightPipeline:
         self.config.temp_dir.mkdir(parents=True, exist_ok=True)
 
         # Process with enabled modules in priority order
-        # Define progress weights for each module (total = 85%)
+        # Progress allocation based on ACTUAL enabled modules
+        # Note: OCR and Audio are disabled by default in goal mode
+        # Total: 60% for transcript analysis (Whisper + Gemini)
         module_weights = {
-            "ocr_detection": 20,      # Heavy module
-            "audio_analysis": 15,     # Medium module
-            "transcript_analysis": 50, # Heaviest (Whisper 30 + Gemini 20)
-            "scene_detection": 10,
-            "scene_classification": 5,
-            "reframing": 0,           # Handled separately
+            "ocr_detection": 20,      # Disabled in goal mode
+            "audio_analysis": 15,     # Disabled in goal mode
+            "transcript_analysis": 55, # 5-60% (Whisper 5-35%, Gemini 35-60%)
+            "scene_detection": 10,    # Disabled in goal mode
+            "scene_classification": 0, # Runs per-clip, not in main loop
+            "reframing": 0,           # Handled separately during clip generation
             "video_editing": 0        # Handled separately
         }
+
+        # Stage-specific progress points for better UX
+        # These match the actual execution flow in goal mode
+        self.PROGRESS_INIT = 0           # Initialization start
+        self.PROGRESS_WHISPER_START = 5  # Whisper transcription start
+        self.PROGRESS_WHISPER_END = 35   # Whisper transcription end
+        self.PROGRESS_GEMINI_START = 35  # Gemini analysis start
+        self.PROGRESS_GEMINI_END = 60    # Gemini analysis end
+        self.PROGRESS_POSTPROCESS_START = 60  # Post-processing start
+        self.PROGRESS_POSTPROCESS_END = 65    # Post-processing end
+        self.PROGRESS_GENERATION_START = 65   # Video generation start
+        self.PROGRESS_GENERATION_END = 95     # Video generation end
+        self.PROGRESS_COMPLETE = 100     # Final completion
 
         enabled_modules = self.config.get_enabled_modules()
 
@@ -188,7 +203,7 @@ class HighlightPipeline:
                 current_progress += module_weight
 
         # Post-processing: merge, rank, and filter highlights
-        self._report_progress("후처리", 90, "하이라이트 정리 및 순위 결정...")
+        self._report_progress("후처리", self.PROGRESS_POSTPROCESS_START, "하이라이트 병합 중...")
 
         # If no highlights were generated (all modules disabled), create dummy highlights for testing
         if not self.highlights:
@@ -196,13 +211,14 @@ class HighlightPipeline:
             self._create_dummy_highlights()
 
         self._post_process_highlights()
+        self._report_progress("후처리", self.PROGRESS_POSTPROCESS_END, "하이라이트 필터링 완료!")
 
         # Generate final clips if needed
         if self.config.reframing.enabled and self.highlights:
-            self._report_progress("영상 생성", 95, "최종 클립 생성 중...")
-            self._generate_final_clips()
+            self._report_progress("영상 생성", self.PROGRESS_GENERATION_START, "클립 생성 시작...")
+            self._generate_final_clips()  # Will report 65-95% internally
 
-        self._report_progress("완료", 100, f"총 {len(self.highlights)}개 하이라이트 생성!")
+        self._report_progress("완료", self.PROGRESS_COMPLETE, f"총 {len(self.highlights)}개 하이라이트 생성!")
 
         # End timing and log performance
         self.end_time = time.time()
@@ -323,12 +339,12 @@ class HighlightPipeline:
         """Process transcript and AI analysis to generate highlights.
 
         Args:
-            base_progress: Starting progress percentage
-            module_weight: Total weight allocated to this module (e.g., 50)
+            base_progress: Starting progress percentage (should be 5)
+            module_weight: Total weight allocated to this module (55 = covers 5-60%)
         """
-        # Whisper takes ~60% of this module's time, Gemini takes ~40%
-        whisper_weight = int(module_weight * 0.6)  # e.g., 30 out of 50
-        gemini_weight = int(module_weight * 0.4)   # e.g., 20 out of 50
+        # Use predefined progress points for better UX
+        # Whisper: 5-35% (30% range)
+        # Gemini: 35-60% (25% range)
 
         # Step 1: Initialize transcriber based on backend selection
         backend = self.config.transcript_analysis.backend
@@ -336,7 +352,7 @@ class HighlightPipeline:
         if self._whisper is None:
             if backend == "groq":
                 # Use Groq API (cloud-based, very fast)
-                self._report_progress("음성 인식", base_progress, "Groq API 초기화 중...")
+                self._report_progress("음성 인식", self.PROGRESS_WHISPER_START, "Groq API 초기화 중...")
                 self._whisper = GroqTranscriber(
                     api_key=self.config.transcript_analysis.groq_api_key,
                     model=self.config.transcript_analysis.groq_model,
@@ -346,7 +362,7 @@ class HighlightPipeline:
                 progress_msg = "Groq API로 변환 중... (수 초 소요)"
             else:
                 # Use local Whisper (default)
-                self._report_progress("음성 인식", base_progress, "Whisper 모델 초기화 중...")
+                self._report_progress("음성 인식", self.PROGRESS_WHISPER_START, "Whisper 모델 초기화 중...")
                 self._whisper = WhisperTranscriber(
                     model_size=self.config.transcript_analysis.model_size,
                     language=self.config.transcript_analysis.language,
@@ -361,11 +377,11 @@ class HighlightPipeline:
             else:
                 progress_msg = "오디오 텍스트 변환 중... (약 10-30초 소요)"
 
-        self._report_progress("음성 인식", base_progress + 5, progress_msg)
+        self._report_progress("음성 인식", self.PROGRESS_WHISPER_START + 5, progress_msg)
 
         whisper_result = self._whisper.transcribe(str(self.video_path))
 
-        self._report_progress("음성 인식", base_progress + whisper_weight, "음성 인식 완료!")
+        self._report_progress("음성 인식", self.PROGRESS_WHISPER_END, "음성 인식 완료!")
 
         # Whisper returns dict with 'segments', 'text', 'language'
         if isinstance(whisper_result, dict) and 'segments' in whisper_result:
@@ -381,10 +397,12 @@ class HighlightPipeline:
 
         # Step 2: AI analysis to extract highlights
         if self.config.transcript_analysis.use_gemini:
-            self._report_progress("AI 분석", base_progress + whisper_weight + 2, "Gemini로 하이라이트 추출 중... (약 10-60초 소요)")
+            self._report_progress("AI 분석", self.PROGRESS_GEMINI_START, "Gemini AI 초기화 중...")
 
             if self._transcript_analyzer is None:
                 self._transcript_analyzer = TranscriptAnalyzer(verbose=True)  # Enable debug output
+
+            self._report_progress("AI 분석", self.PROGRESS_GEMINI_START + 5, "Gemini로 하이라이트 추출 중... (약 10-60초 소요)")
 
             # Extract highlights from transcript using Gemini
             try:
@@ -465,7 +483,7 @@ class HighlightPipeline:
                 else:
                     logger.warning("No existing highlights to enhance - Gemini failed and no fallback highlights")
 
-        self._report_progress("AI 분석", base_progress + module_weight, f"{len(self.highlights)}개 하이라이트 추출 완료!")
+        self._report_progress("AI 분석", self.PROGRESS_GEMINI_END, f"{len(self.highlights)}개 하이라이트 추출 완료!")
 
     def _post_process_highlights(self) -> None:
         """Post-process highlights: merge, filter, rank."""
@@ -721,7 +739,7 @@ class HighlightPipeline:
             self._generate_final_clips_sequential()
 
     def _generate_final_clips_sequential(self) -> None:
-        """Generate final clips sequentially (original implementation)."""
+        """Generate final clips sequentially with granular progress tracking."""
         if self._video_editor is None:
             self._video_editor = VideoEditor()
 
@@ -748,9 +766,21 @@ class HighlightPipeline:
                 logger.error(f"Failed to initialize scene classifier: {e}")
                 self.config.scene_classification.enabled = False
 
+        # Calculate progress per clip (65-95% range = 30% total)
+        total_clips = len(self.highlights)
+        progress_per_clip = (self.PROGRESS_GENERATION_END - self.PROGRESS_GENERATION_START) / total_clips if total_clips > 0 else 0
+
         for i, highlight in enumerate(self.highlights):
             try:
+                # Calculate current progress
+                current_progress = self.PROGRESS_GENERATION_START + int(i * progress_per_clip)
+
                 logger.info(f"Generating clip {i+1}/{len(self.highlights)}")
+                self._report_progress(
+                    "영상 생성",
+                    current_progress,
+                    f"클립 {i+1}/{total_clips} 생성 중..."
+                )
 
                 # Step 1: Extract clip
                 temp_clip = self.config.temp_dir / f"clip_{i}_temp.mp4"
@@ -834,6 +864,8 @@ class HighlightPipeline:
 
                 if clip_paths:
                     # Merge clips with original audio
+                    self._report_progress("영상 생성", self.PROGRESS_GENERATION_END, f"{len(clip_paths)}개 클립 생성 완료!")
+
                     final_shorts = self._merge_clips_to_final_shorts(
                         clip_paths,
                         self.video_path

@@ -13,11 +13,14 @@ from pathlib import Path
 from typing import List, Dict, Optional, Callable, Any, Tuple
 from dataclasses import dataclass
 import time
+from datetime import datetime
+import cv2
 
 from src.pipeline.pipeline_config import PipelineConfig, create_config_from_mode
 from src.audio.scoreboard_ocr_detector import ScoreboardOCRDetector, GoalEvent
 from src.audio.highlight_filter import AudioHighlightFilter
 from src.audio.whisper_transcriber import WhisperTranscriber
+from src.audio.groq_transcriber import GroqTranscriber
 from src.ai.transcript_analyzer import TranscriptAnalyzer
 from src.scene.scene_classifier import SceneClassifier
 from src.core.video_editor import VideoEditor
@@ -107,6 +110,11 @@ class HighlightPipeline:
         self.highlights: List[Highlight] = []
         self.processing_errors: List[str] = []
 
+        # Performance tracking
+        self.start_time: Optional[float] = None
+        self.end_time: Optional[float] = None
+        self.performance_log_path = Path("output/performance_log.txt")
+
         logger.info(f"HighlightPipeline initialized in {self.config.mode} mode")
         logger.info(f"Enabled modules: {[name for name, _ in self.config.get_enabled_modules()]}")
 
@@ -121,6 +129,9 @@ class HighlightPipeline:
         Returns:
             List of Highlight objects sorted by score (best first)
         """
+        # Start timing
+        self.start_time = time.time()
+
         self.video_path = Path(video_path)
         self.highlights = []
         self.processing_errors = []
@@ -188,6 +199,10 @@ class HighlightPipeline:
             self._generate_final_clips()
 
         self._report_progress("완료", 100, f"총 {len(self.highlights)}개 하이라이트 생성!")
+
+        # End timing and log performance
+        self.end_time = time.time()
+        self._log_performance()
 
         logger.info(f"Pipeline completed: {len(self.highlights)} highlights generated")
         if self.processing_errors:
@@ -311,16 +326,38 @@ class HighlightPipeline:
         whisper_weight = int(module_weight * 0.6)  # e.g., 30 out of 50
         gemini_weight = int(module_weight * 0.4)   # e.g., 20 out of 50
 
-        self._report_progress("음성 인식", base_progress, "Whisper 모델 초기화 중...")
+        # Step 1: Initialize transcriber based on backend selection
+        backend = self.config.transcript_analysis.backend
 
-        # Step 1: Whisper transcription (optimized with beam_size=1)
         if self._whisper is None:
-            self._whisper = WhisperTranscriber(
-                model_size=self.config.transcript_analysis.model_size,
-                language=self.config.transcript_analysis.language
-            )
+            if backend == "groq":
+                # Use Groq API (cloud-based, very fast)
+                self._report_progress("음성 인식", base_progress, "Groq API 초기화 중...")
+                self._whisper = GroqTranscriber(
+                    api_key=self.config.transcript_analysis.groq_api_key,
+                    model=self.config.transcript_analysis.groq_model,
+                    language=self.config.transcript_analysis.language,
+                    verbose=False
+                )
+                progress_msg = "Groq API로 변환 중... (수 초 소요)"
+            else:
+                # Use local Whisper (default)
+                self._report_progress("음성 인식", base_progress, "Whisper 모델 초기화 중...")
+                self._whisper = WhisperTranscriber(
+                    model_size=self.config.transcript_analysis.model_size,
+                    language=self.config.transcript_analysis.language,
+                    verbose=False
+                )
+                progress_msg = "오디오 텍스트 변환 중... (약 10-30초 소요)"
 
-        self._report_progress("음성 인식", base_progress + 5, "오디오 텍스트 변환 중... (약 10-30초 소요)")
+        else:
+            # Transcriber already initialized
+            if backend == "groq":
+                progress_msg = "Groq API로 변환 중... (수 초 소요)"
+            else:
+                progress_msg = "오디오 텍스트 변환 중... (약 10-30초 소요)"
+
+        self._report_progress("음성 인식", base_progress + 5, progress_msg)
 
         whisper_result = self._whisper.transcribe(str(self.video_path))
 
@@ -449,14 +486,33 @@ class HighlightPipeline:
 
         self.highlights = filtered_highlights
 
-        # Step 3: Sort by score (best first)
-        self.highlights.sort(key=lambda h: h.score, reverse=True)
+        # Step 3: Select highlights - goals only, unless 6+ goals
+        logger.info(f"Selecting highlights (goals prioritized, max 5 unless 6+ goals)")
 
-        # Step 4: Limit to max_highlights
-        if len(self.highlights) > self.config.max_highlights:
-            self.highlights = self.highlights[:self.config.max_highlights]
+        # Separate goals from chances based on title/score
+        goals = [h for h in self.highlights if "Goal" in h.title or h.score >= 0.85]
+        chances = [h for h in self.highlights if h not in goals]
 
-        logger.info(f"Post-processing complete: {len(self.highlights)} highlights remain")
+        logger.info(f"Found {len(goals)} goals and {len(chances)} chances")
+
+        # NEW LOGIC: Only select goals, don't force chances
+        selected_highlights = []
+
+        if len(goals) >= 6:
+            # 6+ goals: select all goals (up to 6)
+            goals.sort(key=lambda h: h.score, reverse=True)
+            selected_highlights = goals[:6]
+            logger.info(f"Selected 6 goals (6+ goals found)")
+        else:
+            # Less than 6 goals: select all goals only (no chances)
+            selected_highlights = goals
+            logger.info(f"Selected {len(goals)} goals only (no chances added)")
+
+        # Step 4: Sort ALL selected highlights chronologically
+        selected_highlights.sort(key=lambda h: h.start_time)
+        self.highlights = selected_highlights
+
+        logger.info(f"Post-processing complete: {len(self.highlights)} highlights sorted chronologically")
 
     def _generate_final_clips(self) -> None:
         """Generate final video clips with reframing if enabled."""
@@ -814,6 +870,91 @@ class HighlightPipeline:
 
         logger.info(f"✅ Final shorts created: {output_path}")
         return output_path
+
+    def _get_video_duration(self, video_path: Path) -> float:
+        """Get video duration in seconds using OpenCV.
+
+        Args:
+            video_path: Path to video file
+
+        Returns:
+            Duration in seconds
+        """
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            logger.warning(f"Could not open video to get duration: {video_path}")
+            return 0.0
+
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        cap.release()
+
+        if fps > 0:
+            return frame_count / fps
+        return 0.0
+
+    def _log_performance(self) -> None:
+        """Log pipeline performance metrics to console and file."""
+        if self.start_time is None or self.end_time is None:
+            logger.warning("Cannot log performance - timing not recorded")
+            return
+
+        # Calculate metrics
+        processing_time = self.end_time - self.start_time
+        input_duration = self._get_video_duration(self.video_path)
+
+        # Calculate total highlight duration
+        total_highlight_duration = sum(h.duration for h in self.highlights)
+
+        # Format time as HH:MM:SS
+        def format_duration(seconds: float) -> str:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            secs = int(seconds % 60)
+            if hours > 0:
+                return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+            return f"{minutes:02d}:{secs:02d}"
+
+        # Log to console
+        logger.info("=" * 70)
+        logger.info("📊 PIPELINE PERFORMANCE REPORT")
+        logger.info("=" * 70)
+        logger.info(f"📁 Input Video: {self.video_path.name}")
+        logger.info(f"⏱️  Input Duration: {format_duration(input_duration)} ({input_duration:.1f}s)")
+        logger.info(f"🎬 Highlights Generated: {len(self.highlights)}")
+        logger.info(f"⏱️  Total Highlight Duration: {format_duration(total_highlight_duration)} ({total_highlight_duration:.1f}s)")
+        logger.info(f"⚡ Processing Time: {format_duration(processing_time)} ({processing_time:.1f}s)")
+        logger.info(f"🚀 Speed: {input_duration / processing_time:.2f}x realtime" if processing_time > 0 else "🚀 Speed: N/A")
+        logger.info("=" * 70)
+
+        # Log to file
+        try:
+            # Ensure output directory exists
+            self.performance_log_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Prepare log entry
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_entry = f"""
+{'=' * 80}
+Timestamp: {timestamp}
+Video: {self.video_path.name}
+Input Duration: {format_duration(input_duration)} ({input_duration:.1f}s)
+Highlights: {len(self.highlights)}
+Highlight Duration: {format_duration(total_highlight_duration)} ({total_highlight_duration:.1f}s)
+Processing Time: {format_duration(processing_time)} ({processing_time:.1f}s)
+Speed: {input_duration / processing_time:.2f}x realtime
+Mode: {self.config.mode}
+{'=' * 80}
+"""
+
+            # Append to file
+            with open(self.performance_log_path, "a", encoding="utf-8") as f:
+                f.write(log_entry)
+
+            logger.info(f"📝 Performance log saved to: {self.performance_log_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to write performance log: {e}")
 
 
 # Convenience function for simple usage

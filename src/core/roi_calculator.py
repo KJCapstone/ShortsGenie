@@ -314,6 +314,12 @@ class ROICalculator:
             roi_width = frame_width
             roi_height = int(roi_width / target_aspect)
 
+        # Apply scale factor to show wider view (less zoom)
+        # roi_scale_factor > 1.0 = wider view with letterboxing
+        # roi_scale_factor < 1.0 = tighter crop
+        roi_width = int(roi_width * self.config.roi_scale_factor)
+        roi_height = int(roi_height * self.config.roi_scale_factor)
+
         # Ensure ROI doesn't exceed frame dimensions
         roi_width = min(roi_width, frame_width)
         roi_height = min(roi_height, frame_height)

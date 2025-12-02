@@ -27,11 +27,11 @@ DASHED_FRAME_BG_COLOR = "#F4F2FB"
 DASHED_LINE_COLOR = "#CCCCCC"
 
 
-# Processing steps
+# Processing steps (updated to match actual pipeline execution)
 PROCESSING_STEPS = [
-    "중계 내용 텍스트 변환",
-    "객체 인식",
-    "이벤트 태깅"
+    "음성 인식 (Whisper)",      # Step 1: Whisper transcription (5-35%)
+    "AI 하이라이트 분석",        # Step 2: Gemini AI analysis (35-60%)
+    "영상 생성 및 편집"          # Step 3: Post-processing + Video generation (60-100%)
 ]
 
 
@@ -523,32 +523,34 @@ class ProgressPage(QWidget):
         # Update overall progress
         self.progress = progress
 
-        # Map stage to step index
+        # Map stage to step index (updated to match actual execution flow)
         stage_to_step = {
             "초기화": 0,
-            "OCR 골 감지": 0,
-            "오디오 분석": 1,
-            "해설 분석": 1,
-            "AI 분석": 1,
-            "장면 전환 감지": 2,
-            "후처리": 2,
+            "음성 인식": 0,       # Step 1: Whisper transcription (5-35%)
+            "AI 분석": 1,         # Step 2: Gemini analysis (35-60%)
+            "해설 분석": 1,       # Legacy fallback
+            "후처리": 2,          # Step 3: Post-processing + Video gen (60-100%)
             "영상 생성": 2,
+            "영상 병합": 2,
             "완료": 2
         }
 
         step_idx = stage_to_step.get(stage, 0)
         self.current_step = step_idx
 
-        # Update step progress (distribute 0-100 across 3 steps)
-        if progress <= 33:
-            self.step_progress[0] = progress * 3.03
-        elif progress <= 66:
+        # Update step progress based on actual progress ranges
+        # Step 1: 0-35% (Whisper transcription)
+        # Step 2: 35-60% (Gemini AI analysis)
+        # Step 3: 60-100% (Post-processing + Video generation)
+        if progress <= 35:
+            self.step_progress[0] = (progress / 35) * 100
+        elif progress <= 60:
             self.step_progress[0] = 100
-            self.step_progress[1] = (progress - 33) * 3.03
+            self.step_progress[1] = ((progress - 35) / 25) * 100
         else:
             self.step_progress[0] = 100
             self.step_progress[1] = 100
-            self.step_progress[2] = (progress - 66) * 2.97
+            self.step_progress[2] = ((progress - 60) / 40) * 100
 
         # Update UI
         self.update_progress_display()
@@ -599,7 +601,32 @@ class ProgressPage(QWidget):
         print(f"✗ Processing Failed: {error}")
         print("=" * 60 + "\n")
 
-        # For now, emit empty results (could show error page instead)
+        # Show error dialog to user
+        from PySide6.QtWidgets import QMessageBox
+
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setWindowTitle("처리 실패")
+
+        # Customize message based on error type
+        if "지루하거나 오디오에 문제" in error:
+            msg_box.setText("하이라이트 추출 실패")
+            msg_box.setInformativeText(
+                "이 경기는 매우 지루하거나 오디오에 문제가 있을 수 있습니다.\n\n"
+                "가능한 원인:\n"
+                "• 골이나 결정적 찬스가 없는 경기 (0-0 무승부 등)\n"
+                "• 음성 인식 실패 또는 중계 음성 없음\n"
+                "• 오디오 품질이 매우 낮음\n\n"
+                "다른 경기 영상으로 시도해보세요."
+            )
+        else:
+            msg_box.setText("처리 중 오류가 발생했습니다")
+            msg_box.setInformativeText(error)
+
+        msg_box.setStandardButtons(QMessageBox.Ok)
+        msg_box.exec()
+
+        # Emit empty results to return to main page
         self.processing_completed.emit([])
 
     def _update_loading_animation(self) -> None:

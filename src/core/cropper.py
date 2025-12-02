@@ -38,7 +38,8 @@ class Cropper:
         self,
         input_path: str,
         output_path: str,
-        roi_trajectory: List[ROI]
+        roi_trajectory: List[ROI],
+        output_fps: Optional[float] = None
     ):
         """Crop video according to ROI trajectory.
 
@@ -46,6 +47,7 @@ class Cropper:
             input_path: Input video path
             output_path: Output video path
             roi_trajectory: List of ROI objects (one per frame)
+            output_fps: Output video fps. If None, uses source video fps.
         """
         print(f"[Cropper] Processing: {input_path} -> {output_path}")
 
@@ -53,12 +55,15 @@ class Cropper:
             # Create output directory if needed
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
+            # Use specified output_fps or fall back to source fps
+            fps_to_use = output_fps if output_fps is not None else reader.fps
+
             # Create video writer
             with VideoWriter(
                 output_path,
                 self.output_width,
                 self.output_height,
-                reader.fps,
+                fps_to_use,
                 codec="mp4v"
             ) as writer:
                 # Process each frame

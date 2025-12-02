@@ -50,6 +50,12 @@ class VideoConfig:
     audio_codec: str = "aac"
     crf: int = 28  # Constant Rate Factor (18-28 recommended, higher=smaller file)
 
+    # Frame processing optimization
+    target_fps: float = 30.0  # Target fps for processing (detection, ROI calculation)
+                               # If source > target_fps, frames are skipped for faster processing
+                               # If source <= target_fps, all frames are processed
+                               # Recommended: 30.0 for optimal speed/quality balance
+
 
 @dataclass
 class DetectionConfig:

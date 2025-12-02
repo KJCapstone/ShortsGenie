@@ -137,11 +137,14 @@ class ReframingPipeline:
         ball_detections_per_frame = {}
         player_detections_per_frame = {}
 
-        with VideoReader(clip_path) as reader:
-            total_frames = reader.frame_count
+        # Use target_fps from VideoConfig for fps downsampling
+        target_fps = self.config.video.target_fps if hasattr(self.config.video, 'target_fps') else None
+
+        with VideoReader(clip_path, target_fps=target_fps) as reader:
+            total_frames = reader.effective_frame_count  # Use effective frame count after stepping
             frame_width = reader.width
             frame_height = reader.height
-            fps = reader.fps
+            fps = reader.effective_fps  # Use effective fps (downsampled)
 
             # Now load scene metadata if requested (we have fps now)
             if scene_metadata_to_load:
@@ -150,7 +153,8 @@ class ReframingPipeline:
                     from src.scene.scene_manager import SceneManager
 
                     print(f"\n[Step 0/6] Loading scene metadata from {scene_metadata_to_load}...")
-                    metadata = load_from_auto_tagger_json(scene_metadata_to_load, fps)
+                    # Use original fps for scene metadata timing
+                    metadata = load_from_auto_tagger_json(scene_metadata_to_load, reader.fps)
                     scene_manager = SceneManager(metadata)
                     print(f"[Scene] ✓ Loaded {len(metadata.segments)} scenes")
                 except Exception as e:
@@ -178,8 +182,8 @@ class ReframingPipeline:
 
         # Calculate detection statistics
         frames_with_ball = sum(1 for balls in ball_detections_per_frame.values() if balls)
-        ball_detection_rate = frames_with_ball / total_frames
-        avg_players = np.mean([len(players) for players in player_detections_per_frame.values()])
+        ball_detection_rate = frames_with_ball / total_frames if total_frames > 0 else 0
+        avg_players = np.mean([len(players) for players in player_detections_per_frame.values()]) if player_detections_per_frame else 0
 
         print(f"[Detection] Ball detected in {frames_with_ball}/{total_frames} frames ({ball_detection_rate:.1%})")
         print(f"[Detection] Average players per frame: {avg_players:.1f}")
@@ -233,7 +237,7 @@ class ReframingPipeline:
 
         # Step 6: Crop and encode
         print("\n[Step 6/6] Cropping and encoding output...")
-        cropper.process(clip_path, output_path, roi_trajectory)
+        cropper.process(clip_path, output_path, roi_trajectory, output_fps=fps)
 
         # Calculate final statistics
         processing_time = time.time() - start_time

@@ -20,6 +20,7 @@ from src.pipeline.pipeline_config import PipelineConfig, create_config_from_mode
 from src.audio.scoreboard_ocr_detector import ScoreboardOCRDetector, GoalEvent
 from src.audio.highlight_filter import AudioHighlightFilter
 from src.audio.whisper_transcriber import WhisperTranscriber
+from src.audio.groq_transcriber import GroqTranscriber
 from src.ai.transcript_analyzer import TranscriptAnalyzer
 from src.scene.scene_classifier import SceneClassifier
 from src.core.video_editor import VideoEditor
@@ -325,16 +326,38 @@ class HighlightPipeline:
         whisper_weight = int(module_weight * 0.6)  # e.g., 30 out of 50
         gemini_weight = int(module_weight * 0.4)   # e.g., 20 out of 50
 
-        self._report_progress("음성 인식", base_progress, "Whisper 모델 초기화 중...")
+        # Step 1: Initialize transcriber based on backend selection
+        backend = self.config.transcript_analysis.backend
 
-        # Step 1: Whisper transcription (optimized with beam_size=1)
         if self._whisper is None:
-            self._whisper = WhisperTranscriber(
-                model_size=self.config.transcript_analysis.model_size,
-                language=self.config.transcript_analysis.language
-            )
+            if backend == "groq":
+                # Use Groq API (cloud-based, very fast)
+                self._report_progress("음성 인식", base_progress, "Groq API 초기화 중...")
+                self._whisper = GroqTranscriber(
+                    api_key=self.config.transcript_analysis.groq_api_key,
+                    model=self.config.transcript_analysis.groq_model,
+                    language=self.config.transcript_analysis.language,
+                    verbose=False
+                )
+                progress_msg = "Groq API로 변환 중... (수 초 소요)"
+            else:
+                # Use local Whisper (default)
+                self._report_progress("음성 인식", base_progress, "Whisper 모델 초기화 중...")
+                self._whisper = WhisperTranscriber(
+                    model_size=self.config.transcript_analysis.model_size,
+                    language=self.config.transcript_analysis.language,
+                    verbose=False
+                )
+                progress_msg = "오디오 텍스트 변환 중... (약 10-30초 소요)"
 
-        self._report_progress("음성 인식", base_progress + 5, "오디오 텍스트 변환 중... (약 10-30초 소요)")
+        else:
+            # Transcriber already initialized
+            if backend == "groq":
+                progress_msg = "Groq API로 변환 중... (수 초 소요)"
+            else:
+                progress_msg = "오디오 텍스트 변환 중... (약 10-30초 소요)"
+
+        self._report_progress("음성 인식", base_progress + 5, progress_msg)
 
         whisper_result = self._whisper.transcribe(str(self.video_path))
 

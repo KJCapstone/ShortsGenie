@@ -89,14 +89,16 @@ class MainWindow(QMainWindow):
         self.preview_page.back_requested.connect(self.handle_preview_page_back)
         self.output_page.back_requested.connect(self.handle_output_page_back)
 
-    @Slot(str, str)
-    def show_progress_page(self, file_path: str, option: str) -> None:
+    @Slot(str, str, str, str)
+    def show_progress_page(self, file_path: str, option: str, backend: str, groq_api_key: str) -> None:
         """
         Switch to editing page and pass data to it.
 
         Args:
             file_path: Path to the selected video file
             option: Selected editing option/condition
+            backend: Transcription backend ("whisper" or "groq")
+            groq_api_key: Groq API key (if backend is "groq")
         """
         # Cache for potential back navigation
         self.cached_file_path = file_path
@@ -104,7 +106,7 @@ class MainWindow(QMainWindow):
 
         selected_option = self.OPTION_MAP.get(option)
 
-        self.progress_page.set_data(file_path, selected_option)
+        self.progress_page.set_data(file_path, selected_option, backend, groq_api_key)
         self.stacked_widget.setCurrentIndex(1)
 
     @Slot(list)

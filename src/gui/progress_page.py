@@ -314,7 +314,7 @@ class ProgressPage(QWidget):
         return layout
 
     @Slot(str, str)
-    def set_data(self, file_path: str, option: str) -> None:
+    def set_data(self, file_path: str, option: str, backend: str = "whisper", groq_api_key: str = "") -> None:
         """
         Set the file path and option to display.
 
@@ -324,9 +324,13 @@ class ProgressPage(QWidget):
         Args:
             file_path: Path to the selected video file
             option: Selected editing option
+            backend: Transcription backend ("whisper" or "groq")
+            groq_api_key: Groq API key (if backend is "groq")
         """
         self.file_path = file_path
         self.option = option
+        self.backend = backend
+        self.groq_api_key = groq_api_key
 
         # Log for debugging
         print(f"\n{'=' * 60}")
@@ -334,6 +338,7 @@ class ProgressPage(QWidget):
         print(f"{'=' * 60}")
         print(f"File Path: {file_path}")
         print(f"Selected Option: {option}")
+        print(f"Backend: {backend}")
         print(f"{'=' * 60}\n")
 
         # Start real pipeline processing
@@ -345,7 +350,7 @@ class ProgressPage(QWidget):
 
         This replaces the fake simulation with actual AI processing.
         """
-        logger.info(f"Starting real processing: {self.file_path} ({self.option} mode)")
+        logger.info(f"Starting real processing: {self.file_path} ({self.option} mode, backend: {self.backend})")
 
         # Reset progress
         self.progress = 0
@@ -356,7 +361,9 @@ class ProgressPage(QWidget):
         # Create worker
         self.worker = PipelineWorker(
             video_path=self.file_path,
-            mode=self.option
+            mode=self.option,
+            backend=self.backend,
+            groq_api_key=self.groq_api_key
         )
 
         # Connect signals

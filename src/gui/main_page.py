@@ -2,9 +2,11 @@
 
 import os
 from typing import List
+from pathlib import Path
+from dotenv import load_dotenv
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QLineEdit, QPushButton, QFileDialog, QFrame, QMessageBox
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QLineEdit, QPushButton, QFileDialog, QFrame, QMessageBox, QComboBox
 )
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QFont, QPainter, QPen, QColor, QDragEnterEvent, QDropEvent
@@ -123,8 +125,8 @@ class MainPage(QWidget):
         selected_option_index (int): 현재 선택된 옵션의 인덱스
     """
     
-    # Signal: emitted when editing is requested with file path and selected option
-    edit_requested = Signal(str, str)
+    # Signal: emitted when editing is requested with file path, mode, backend, and API key
+    edit_requested = Signal(str, str, str, str)  # video_path, mode, backend, groq_api_key
     
     def __init__(self) -> None:
         """Initialize the main page and set up UI components."""
@@ -236,18 +238,25 @@ class MainPage(QWidget):
 
         # Connect drag and drop signals
         frame.file_dropped.connect(self.on_file_dropped)
-        
+
         inner_layout = QVBoxLayout(frame)
-        inner_layout.setContentsMargins(90, 50, 90, 50)
-        inner_layout.setSpacing(20)
-        
+        inner_layout.setContentsMargins(60, 35, 60, 50)
+        inner_layout.setSpacing(15)
+
         # File input section
         self._add_file_input_section(inner_layout)
-        inner_layout.addSpacing(20)
-        
+        inner_layout.addSpacing(15)
+
+        # Backend selection section
+        self._add_backend_section(inner_layout)
+        inner_layout.addSpacing(10)
+
+        # API key input section (conditionally shown)
+        self._add_api_key_section(inner_layout)
+
         # Option selection section
         #self._add_option_selection_section(inner_layout)
-        
+
         return frame
     
     def _add_file_input_section(self, layout: QVBoxLayout) -> None:
@@ -260,10 +269,10 @@ class MainPage(QWidget):
         file_label.setFont(file_label_font)
         file_label.setStyleSheet("border: none; background-color: transparent;")
         layout.addWidget(file_label)
-        
+
         # File input row
         file_input_layout = QHBoxLayout()
-        
+
         # Path input field
         self.file_path_edit = QLineEdit()
         self.file_path_edit.setPlaceholderText("/path/input.mp4")
@@ -277,7 +286,7 @@ class MainPage(QWidget):
                 background-color: #FAFAFA;
             }
         """)
-        
+
         # Browse button
         browse_btn = QPushButton("찾아보기")
         browse_btn.setMinimumSize(80, BUTTON_HEIGHT)
@@ -294,10 +303,140 @@ class MainPage(QWidget):
             }
         """)
         browse_btn.clicked.connect(self.browse_file)
-        
+
         file_input_layout.addWidget(self.file_path_edit)
         file_input_layout.addWidget(browse_btn)
         layout.addLayout(file_input_layout)
+
+    def _add_backend_section(self, layout: QVBoxLayout) -> None:
+        """Add transcription backend selection section."""
+        # Label
+        backend_label = QLabel("음성 변환 방식을 선택해주세요.")
+        backend_label_font = QFont()
+        backend_label_font.setPointSize(12)
+        backend_label_font.setBold(True)
+        backend_label.setFont(backend_label_font)
+        backend_label.setStyleSheet("border: none; background-color: transparent;")
+        layout.addWidget(backend_label)
+
+        # Backend dropdown
+        self.backend_combo = QComboBox()
+        self.backend_combo.addItem("로컬 Whisper (무료, 느림)")
+        self.backend_combo.addItem("Groq API (빠름, 유료)")
+        self.backend_combo.setMinimumHeight(INPUT_HEIGHT_MIN)
+        self.backend_combo.setMaximumHeight(INPUT_HEIGHT_MAX)
+        self.backend_combo.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #DDDDDD;
+                border-radius: 5px;
+                padding: 5px 10px;
+                background-color: #FAFAFA;
+                color: #333333;
+            }
+            QComboBox:hover {
+                background-color: #F0F0F0;
+                border: 1px solid #BBBBBB;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #666666;
+                margin-right: 10px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: white;
+                color: #333333;
+                selection-background-color: #7B68BE;
+                selection-color: white;
+                border: 1px solid #DDDDDD;
+                outline: none;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 8px;
+                color: #333333;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #E8E0FF;
+                color: #333333;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #7B68BE;
+                color: white;
+            }
+        """)
+        self.backend_combo.currentIndexChanged.connect(self.on_backend_changed)
+        layout.addWidget(self.backend_combo)
+
+    def _add_api_key_section(self, layout: QVBoxLayout) -> None:
+        """Add Groq API key input section."""
+        # Container widget (initially hidden)
+        self.api_key_container = QWidget()
+        api_key_layout = QVBoxLayout(self.api_key_container)
+        api_key_layout.setContentsMargins(0, 5, 0, 5)
+        api_key_layout.setSpacing(8)
+
+        # Label
+        api_key_label = QLabel("Groq API 키를 입력해주세요.")
+        api_key_label_font = QFont()
+        api_key_label_font.setPointSize(10)
+        api_key_label.setFont(api_key_label_font)
+        api_key_label.setStyleSheet("border: none; background-color: transparent; color: #666666;")
+        api_key_layout.addWidget(api_key_label)
+
+        # API key input row
+        api_key_input_layout = QHBoxLayout()
+
+        # API key input field
+        self.api_key_edit = QLineEdit()
+        self.api_key_edit.setPlaceholderText("gsk_...")
+        self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_key_edit.setMinimumHeight(INPUT_HEIGHT_MIN)
+        self.api_key_edit.setMaximumHeight(INPUT_HEIGHT_MAX)
+        self.api_key_edit.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #DDDDDD;
+                border-radius: 5px;
+                padding: 5px 10px;
+                background-color: #FAFAFA;
+            }
+        """)
+
+        # Load existing API key from .env
+        load_dotenv()
+        existing_key = os.getenv("GROQ_API_KEY", "")
+        if existing_key:
+            self.api_key_edit.setText(existing_key)
+
+        # Save button
+        save_key_btn = QPushButton("저장")
+        save_key_btn.setMinimumSize(60, BUTTON_HEIGHT)
+        save_key_btn.setMaximumWidth(80)
+        save_key_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #7B68BE;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 5px;
+            }
+            QPushButton:hover {
+                background-color: #6A57AD;
+            }
+        """)
+        save_key_btn.clicked.connect(self.save_api_key)
+
+        api_key_input_layout.addWidget(self.api_key_edit)
+        api_key_input_layout.addWidget(save_key_btn)
+        api_key_layout.addLayout(api_key_input_layout)
+
+        # Hide by default (shown only when Groq is selected)
+        self.api_key_container.setVisible(False)
+
+        layout.addWidget(self.api_key_container)
     
     def _add_option_selection_section(self, layout: QVBoxLayout) -> None:
         """Add option selection section to the given layout."""
@@ -393,6 +532,55 @@ class MainPage(QWidget):
 
         self.file_path_edit.setText(file_path)
 
+    @Slot(int)
+    def on_backend_changed(self, index: int) -> None:
+        """Handle backend selection change."""
+        # Show API key input only when Groq is selected (index 1)
+        self.api_key_container.setVisible(index == 1)
+
+    @Slot()
+    def save_api_key(self) -> None:
+        """Save API key to .env file."""
+        api_key = self.api_key_edit.text().strip()
+
+        if not api_key:
+            QMessageBox.warning(self, "경고", "API 키를 입력해주세요.")
+            return
+
+        # Path to .env file
+        env_path = Path(__file__).parent.parent.parent / ".env"
+
+        try:
+            # Read existing .env content
+            if env_path.exists():
+                with open(env_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+
+                # Update GROQ_API_KEY line
+                updated = False
+                for i, line in enumerate(lines):
+                    if line.startswith("GROQ_API_KEY="):
+                        lines[i] = f"GROQ_API_KEY={api_key}\n"
+                        updated = True
+                        break
+
+                # If not found, append
+                if not updated:
+                    lines.append(f"\nGROQ_API_KEY={api_key}\n")
+
+                # Write back
+                with open(env_path, 'w', encoding='utf-8') as f:
+                    f.writelines(lines)
+            else:
+                # Create new .env file
+                with open(env_path, 'w', encoding='utf-8') as f:
+                    f.write(f"GROQ_API_KEY={api_key}\n")
+
+            QMessageBox.information(self, "성공", "API 키가 저장되었습니다.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"API 키 저장 실패: {e}")
+
     @Slot(object)
     def on_option_clicked(self, clicked_button: QPushButton) -> None:
         """Handle option button click."""
@@ -401,7 +589,7 @@ class MainPage(QWidget):
         for btn in self.option_buttons:
             if btn != clicked_button:
                 btn.setChecked(False)
-        
+
         # Update selected index
         self.selected_option_index = self.option_buttons.index(clicked_button)
     
@@ -410,7 +598,7 @@ class MainPage(QWidget):
         """Start the editing process."""
 
         file_path = self.file_path_edit.text().strip()
-        
+
         # Validate file path
         if not file_path:
             QMessageBox.warning(
@@ -419,12 +607,12 @@ class MainPage(QWidget):
                 "영상 파일을 선택해주세요."
             )
             return
-        
+
         # Validate existence
         if not os.path.exists(file_path):
             QMessageBox.warning(self, "경고", "파일이 존재하지 않습니다.")
             return
-        
+
         if not os.access(file_path, os.R_OK):
             QMessageBox.critical(
             self,
@@ -432,14 +620,39 @@ class MainPage(QWidget):
             "파일 읽기 권한이 없습니다."
             )
             return
-        
+
         # Validate extension
         if not file_path.lower().endswith((".mp4", ".avi", ".mov", ".mkv")):
             QMessageBox.warning(self, "경고", "지원하지 않는 영상 형식입니다.")
             return
-        
-        # Get selected option
-        selected_option = EDITING_OPTIONS[self.selected_option_index]
-        
+
+        # Get backend selection
+        backend = "whisper" if self.backend_combo.currentIndex() == 0 else "groq"
+
+        # Get API key if Groq is selected
+        groq_api_key = ""
+        if backend == "groq":
+            # 먼저 GUI 입력값 확인
+            groq_api_key = self.api_key_edit.text().strip()
+
+            # GUI에 없으면 .env 파일에서 로드
+            if not groq_api_key:
+                load_dotenv()
+                groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
+
+            # 둘 다 없으면 에러
+            if not groq_api_key:
+                QMessageBox.warning(
+                    self,
+                    "경고",
+                    "Groq API 키를 입력해주세요.\n\n"
+                    "1. 위 입력창에 API 키 입력 후 '저장' 클릭\n"
+                    "2. 또는 로컬 Whisper를 선택하세요."
+                )
+                return
+
+        # Get selected option (default to first if options are disabled)
+        selected_option = EDITING_OPTIONS[0]  # Default to "골 모음 영상"
+
         # Emit signal to request page transition
-        self.edit_requested.emit(file_path, selected_option)
+        self.edit_requested.emit(file_path, selected_option, backend, groq_api_key)

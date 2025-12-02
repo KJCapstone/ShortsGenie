@@ -54,9 +54,16 @@ class TranscriptAnalysisConfig(ModuleConfig):
     enabled: bool = True
     priority: int = 3
 
-    # Whisper settings
+    # Backend selection
+    backend: str = "whisper"  # "whisper" (local) or "groq" (cloud API)
+
+    # Whisper settings (for local backend)
     model_size: str = "base"  # tiny, base, small, medium, large
     language: str = "auto"  # Auto-detect language (supports 99 languages)
+
+    # Groq settings (for cloud backend)
+    groq_api_key: Optional[str] = None  # API key (from GUI or .env)
+    groq_model: str = "whisper-large-v3-turbo"  # whisper-large-v3-turbo or whisper-large-v3
 
     # AI analysis
     use_gemini: bool = True

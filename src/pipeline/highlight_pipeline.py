@@ -915,6 +915,10 @@ class HighlightPipeline:
                 return f"{hours:02d}:{minutes:02d}:{secs:02d}"
             return f"{minutes:02d}:{secs:02d}"
 
+        # Get backend info
+        backend = self.config.transcript_analysis.backend
+        backend_display = "Groq API" if backend == "groq" else "Local Whisper"
+
         # Log to console
         logger.info("=" * 70)
         logger.info("📊 PIPELINE PERFORMANCE REPORT")
@@ -925,6 +929,7 @@ class HighlightPipeline:
         logger.info(f"⏱️  Total Highlight Duration: {format_duration(total_highlight_duration)} ({total_highlight_duration:.1f}s)")
         logger.info(f"⚡ Processing Time: {format_duration(processing_time)} ({processing_time:.1f}s)")
         logger.info(f"🚀 Speed: {input_duration / processing_time:.2f}x realtime" if processing_time > 0 else "🚀 Speed: N/A")
+        logger.info(f"🎙️  Transcription Backend: {backend_display}")
         logger.info("=" * 70)
 
         # Log to file
@@ -944,6 +949,7 @@ Highlight Duration: {format_duration(total_highlight_duration)} ({total_highligh
 Processing Time: {format_duration(processing_time)} ({processing_time:.1f}s)
 Speed: {input_duration / processing_time:.2f}x realtime
 Mode: {self.config.mode}
+Transcription Backend: {backend_display}
 {'=' * 80}
 """
 

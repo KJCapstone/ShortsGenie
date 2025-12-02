@@ -120,7 +120,7 @@ class TranscriptAnalyzer:
         """Gemini를 사용하여 하이라이트 추출"""
 
         prompt = f"""
-Analyze the following soccer match commentary and extract ONLY goals and key chances.
+Analyze the following soccer match commentary and extract the most exciting moments as highlights.
 
 Commentary text:
 ```
@@ -128,51 +128,69 @@ Commentary text:
 ```
 
 Requirements:
-1. Extract ONLY two types of highlights:
-   - "goal": Actual goals scored
-   - "chance": Clear goal-scoring opportunities (shots on target, near misses)
+1. **Priority order for highlight extraction**:
+   - FIRST: "goal" - Actual goals scored (highest priority)
+   - SECOND: "chance" - Clear goal-scoring opportunities (shots on target, shots hitting post/crossbar, saves)
+   - THIRD: "moment" - Other exciting moments ONLY if no goals/chances exist:
+     * Dangerous attacks that reached the penalty box
+     * Free kicks or corner kicks with threatening attempts
+     * Controversial moments (potential penalties, VAR reviews, red cards)
+     * Spectacular saves or defensive plays
 
-2. **Create SEPARATE highlights for EACH distinct event**:
+2. **Quantity guidelines**:
+   - If there are goals: Extract ALL goals (up to 5)
+   - If there are NO goals but chances exist: Extract 2-4 best chances
+   - If NEITHER goals nor clear chances exist: Extract 1-3 most exciting moments
+   - **NEVER return empty array** - always find at least 1-3 highlights
+   - Maximum total highlights: 5
+
+3. **Create SEPARATE highlights for EACH distinct event**:
    - Do NOT merge multiple events into one giant highlight
-   - Each goal or chance should be its own highlight
+   - Each goal/chance/moment should be its own highlight
    - Maximum duration per highlight: **40 seconds**
    - Minimum duration per highlight: 15 seconds
    - Recommended: 20-30 seconds per highlight
 
-3. Timing is CRITICAL:
+4. Timing is CRITICAL:
    - Include sufficient context BEFORE the moment (build-up play, 3-5 seconds)
    - Include sufficient context AFTER the moment (celebrations/replays, 3-5 seconds)
    - Analyze the commentary to determine appropriate padding
    - **Do NOT create highlights longer than 40 seconds**
 
-4. **Sort highlights by TIME (chronological order)**:
+5. **Sort highlights by TIME (chronological order)**:
    - ALWAYS return highlights in chronological order (earliest first)
    - Never put a later event before an earlier event
 
-5. Merge adjacent highlights ONLY if necessary:
+6. Merge adjacent highlights ONLY if necessary:
    - If two highlights are within 3 seconds of each other, merge them into ONE highlight
    - Example: If highlight A ends at 350s and highlight B starts at 352s → merge into single highlight from A.start to B.end
    - **After merging, if duration exceeds 40s, split into separate highlights**
 
-6. Time format:
+7. Time format:
    - Convert "[MM:SS.S]" or "MM:SS" format to seconds (e.g., "[1:24.5]" = 84.5 seconds)
    - start: beginning of context (including build-up)
    - end: end of context (including celebration/replay)
 
-7. Output format must be a JSON array:
+8. Output format must be a JSON array:
 ```json
 [
   {{
-    "start": 24.0,
-    "end": 52.0,
-    "type": "goal",
-    "description": "마트타 헤더골 (1-0). 라마스 골키퍼를 상대로 강력한 헤더로 선제골 기록."
+    "start": 50.0,
+    "end": 85.0,
+    "type": "chance",
+    "description": "고딘 헤더 골대 맞춤. 우루과이의 위협적인 헤더 슛이 골대를 강타."
   }},
   {{
-    "start": 112.0,
-    "end": 126.0,
-    "type": "goal",
-    "description": "지극해지 프리킥 원더골 (2-0). 환상적인 각도에서 골망을 흔들며 추가골 기록."
+    "start": 1941.0,
+    "end": 1970.0,
+    "type": "chance",
+    "description": "조규성 연속 슈팅. 조규성이 공중볼을 따낸 후 왼발 슈팅으로 마무리."
+  }},
+  {{
+    "start": 2716.0,
+    "end": 2750.0,
+    "type": "chance",
+    "description": "우루과이 골대 두 번 맞춤. 러시스 골키퍼 실수 이후 연속 슈팅."
   }}
 ]
 ```
@@ -184,12 +202,18 @@ Requirements:
 - Write descriptions in Korean.
 - **CRITICAL**: Return highlights in CHRONOLOGICAL ORDER (sorted by start time)
 - **CRITICAL**: Each highlight must be 15-40 seconds. Do NOT create highlights longer than 40 seconds.
-- **CRITICAL**: Create SEPARATE highlights for each distinct event (goal/chance).
+- **CRITICAL**: Create SEPARATE highlights for each distinct event (goal/chance/moment).
+- **CRITICAL**: ALWAYS return at least 1-3 highlights. NEVER return an empty array.
 """
 
         # Gemini API 호출
         response = self.model.generate_content(prompt)
         response_text = response.text.strip()
+
+        # DEBUG: Print Gemini response
+        if self.verbose:
+            print(f"\n🔍 DEBUG: Gemini 응답 길이: {len(response_text)}자")
+            print(f"🔍 DEBUG: Gemini 응답 미리보기 (첫 500자):\n{response_text[:500]}\n")
 
         # JSON 파싱
         highlights = self._parse_response(response_text)
@@ -216,6 +240,14 @@ Requirements:
             if not isinstance(highlights, list):
                 raise ValueError("응답이 리스트 형식이 아닙니다")
 
+            # 빈 리스트 처리
+            if len(highlights) == 0:
+                print("⚠️ WARNING: Gemini가 하이라이트를 추출하지 못했습니다 (빈 배열 반환)")
+                print(f"⚠️ 원본 응답: {response_text[:200]}")
+                print("⚠️ 프롬프트가 '최소 1-3개 하이라이트 반환'을 요구했으나 실패함")
+                print("⚠️ 이 경기는 매우 지루하거나 트랜스크립트에 문제가 있을 수 있습니다")
+                return []
+
             # 각 항목 검증
             for i, highlight in enumerate(highlights):
                 required_fields = ['start', 'end', 'type', 'description']
@@ -229,7 +261,7 @@ Requirements:
 
         except json.JSONDecodeError as e:
             print(f"❌ JSON 파싱 오류: {e}")
-            print(f"응답 텍스트:\n{response_text}")
+            print(f"응답 텍스트 (첫 500자):\n{response_text[:500]}")
             raise ValueError(f"Gemini 응답을 JSON으로 파싱할 수 없습니다: {e}")
 
     def _merge_adjacent_highlights(self, highlights: List[Dict], gap_threshold: float = 3.0) -> List[Dict]:

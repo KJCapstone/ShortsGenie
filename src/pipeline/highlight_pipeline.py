@@ -5,6 +5,7 @@ This module implements a Strategy pattern-based pipeline that can:
 - Enable/disable modules via configuration
 - Handle graceful fallbacks when modules fail
 - Report detailed progress for GUI integration
+- Parallel clip generation for faster processing
 """
 
 import logging
@@ -15,6 +16,9 @@ from dataclasses import dataclass
 import time
 from datetime import datetime
 import cv2
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import torch
 
 from src.pipeline.pipeline_config import PipelineConfig, create_config_from_mode
 from src.audio.scoreboard_ocr_detector import ScoreboardOCRDetector, GoalEvent
@@ -390,6 +394,13 @@ class HighlightPipeline:
 
                 logger.info(f"AI extracted {len(ai_highlights)} highlights")
 
+                # Check if no highlights were extracted
+                if len(ai_highlights) == 0:
+                    error_msg = "이 경기는 매우 지루하거나 오디오에 문제가 있을 수 있습니다. 하이라이트를 추출할 수 없습니다."
+                    logger.warning(error_msg)
+                    self.processing_errors.append(error_msg)
+                    # Continue to create dummy highlights as fallback
+
                 # Sort highlights by start time to ensure chronological order
                 ai_highlights = sorted(ai_highlights, key=lambda x: x.get('start', 0))
                 logger.info(f"Sorted {len(ai_highlights)} highlights chronologically")
@@ -515,7 +526,113 @@ class HighlightPipeline:
         logger.info(f"Post-processing complete: {len(self.highlights)} highlights sorted chronologically")
 
     def _generate_final_clips(self) -> None:
-        """Generate final video clips with reframing if enabled."""
+        """Generate final video clips with reframing if enabled.
+
+        This method automatically chooses between parallel and sequential processing
+        based on configuration and the number of clips.
+        """
+        # Decide whether to use parallel processing
+        use_parallel = (
+            self.config.enable_parallel_clip_generation and
+            len(self.highlights) >= 3  # Only use parallel for 3+ clips
+        )
+
+        if use_parallel:
+            logger.info(f"Using PARALLEL clip generation ({len(self.highlights)} clips)")
+            self._generate_final_clips_parallel()
+        else:
+            logger.info(f"Using SEQUENTIAL clip generation ({len(self.highlights)} clips)")
+            self._generate_final_clips_sequential()
+
+    def _generate_final_clips_parallel(self) -> None:
+        """Generate final clips using parallel processing with ProcessPoolExecutor."""
+        # Determine number of workers
+        max_workers = self.config.max_parallel_workers
+
+        # If GPU available, limit to 1-2 workers to avoid memory issues
+        if torch.cuda.is_available():
+            max_workers = min(max_workers, 2)
+            logger.info(f"GPU detected, limiting workers to {max_workers}")
+        elif torch.backends.mps.is_available():
+            max_workers = min(max_workers, 1)  # MPS doesn't handle multi-process well
+            logger.info(f"MPS detected, limiting workers to {max_workers}")
+        else:
+            max_workers = min(max_workers, os.cpu_count() or 2)
+            logger.info(f"CPU only, using {max_workers} workers")
+
+        # Prepare configuration dictionary (must be picklable)
+        config_dict = {
+            'temp_dir': str(self.config.temp_dir),
+            'output_dir': str(self.config.output_dir),
+            'scene_classification_enabled': self.config.scene_classification.enabled,
+            'reframing_enabled': self.config.reframing.enabled,
+            'confidence_threshold': self.config.reframing.confidence_threshold,
+            'detector_backend': getattr(self.config.reframing, 'detector_backend', 'yolo'),
+            'use_soccernet_model': self.config.reframing.use_soccernet_model,
+            'use_temporal_filter': self.config.reframing.use_temporal_filter,
+            'use_kalman_smoothing': self.config.reframing.use_kalman_smoothing,
+            'scene_model_path': self.config.scene_classification.model_path,
+            'scene_threshold': self.config.scene_classification.threshold,
+            'scene_min_len': self.config.scene_classification.min_scene_len,
+        }
+
+        # Prepare highlight data (must be picklable)
+        highlight_dicts = [
+            {
+                'start_time': h.start_time,
+                'end_time': h.end_time,
+                'title': h.title,
+                'description': h.description
+            }
+            for h in self.highlights
+        ]
+
+        logger.info(f"Starting parallel clip generation with {max_workers} workers")
+
+        # Submit all tasks
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Submit jobs
+            futures = {
+                executor.submit(
+                    _process_single_clip_worker,
+                    i,
+                    highlight_dicts[i],
+                    str(self.video_path),
+                    config_dict
+                ): i for i in range(len(self.highlights))
+            }
+
+            # Collect results as they complete
+            completed_count = 0
+            for future in as_completed(futures):
+                clip_index = futures[future]
+
+                try:
+                    idx, output_clip_path, error_msg = future.result()
+
+                    if error_msg:
+                        logger.error(f"Clip {idx+1} failed: {error_msg}")
+                        self.processing_errors.append(error_msg)
+                    elif output_clip_path:
+                        self.highlights[idx].video_path = output_clip_path
+                        logger.info(f"✅ Clip {idx+1}/{len(self.highlights)} completed: {output_clip_path}")
+
+                    completed_count += 1
+                    progress = 95 + int(completed_count / len(self.highlights) * 4)
+                    self._report_progress(
+                        "영상 생성",
+                        progress,
+                        f"클립 {completed_count}/{len(self.highlights)} 완료"
+                    )
+
+                except Exception as e:
+                    logger.error(f"Clip {clip_index+1} processing failed: {e}")
+                    self.processing_errors.append(f"Clip {clip_index+1} generation failed")
+
+        logger.info(f"Parallel clip generation complete: {completed_count}/{len(self.highlights)} successful")
+
+    def _generate_final_clips_sequential(self) -> None:
+        """Generate final clips sequentially (original implementation)."""
         if self._video_editor is None:
             self._video_editor = VideoEditor()
 
@@ -963,7 +1080,145 @@ Transcription Backend: {backend_display}
             logger.error(f"Failed to write performance log: {e}")
 
 
-# Convenience function for simple usage
+# ============================================================================
+# PARALLEL PROCESSING WORKER FUNCTION
+# ============================================================================
+# This must be at module level (not inside class) for multiprocessing to work
+
+def _process_single_clip_worker(
+    clip_index: int,
+    highlight_dict: Dict[str, Any],
+    video_path: str,
+    config_dict: Dict[str, Any]
+) -> Tuple[int, Optional[str], Optional[str]]:
+    """Worker function for parallel clip processing.
+
+    This function is executed in a separate process and must:
+    1. Be picklable (top-level function, not class method)
+    2. Create its own model instances (not shared across processes)
+    3. Handle all errors gracefully
+
+    Args:
+        clip_index: Index of highlight in the list
+        highlight_dict: Highlight data as dictionary (start_time, end_time, etc.)
+        video_path: Path to original video
+        config_dict: Pipeline configuration as dictionary
+
+    Returns:
+        Tuple of (clip_index, output_clip_path, error_message)
+        - clip_index: Index of processed clip
+        - output_clip_path: Path to generated clip (None if failed)
+        - error_message: Error description (None if successful)
+    """
+    import sys
+    from pathlib import Path
+
+    # Re-add app to path for imports (needed in subprocess)
+    app_dir = Path(__file__).parent.parent.parent
+    if str(app_dir) not in sys.path:
+        sys.path.insert(0, str(app_dir))
+
+    try:
+        from src.scene.scene_classifier import SceneClassifier
+        from src.pipeline.reframing_pipeline import ReframingPipeline
+        from src.core.video_editor import VideoEditor
+        from src.utils.config import AppConfig
+        from src.pipeline.pipeline_config import SceneClassificationConfig, ReframingConfig
+
+        logger = logging.getLogger(__name__)
+        logger.info(f"[Worker {clip_index}] Starting clip processing in subprocess")
+
+        # Reconstruct configuration from dict
+        temp_dir = Path(config_dict['temp_dir'])
+        output_dir = Path(config_dict['output_dir'])
+        scene_classification_enabled = config_dict.get('scene_classification_enabled', True)
+        reframing_enabled = config_dict.get('reframing_enabled', True)
+
+        # Reconstruct highlight data
+        start_time = highlight_dict['start_time']
+        end_time = highlight_dict['end_time']
+
+        # Initialize modules (each worker gets its own instances)
+        video_editor = VideoEditor()
+
+        # Step 1: Extract clip
+        temp_clip = temp_dir / f"clip_{clip_index}_temp.mp4"
+        logger.info(f"[Worker {clip_index}] Extracting clip: {start_time:.1f}s - {end_time:.1f}s")
+
+        video_editor.cut_segment(
+            str(video_path),
+            str(temp_clip),
+            start_time,
+            end_time
+        )
+
+        # Step 2: Scene classification (if enabled)
+        scene_json_path = None
+        if scene_classification_enabled:
+            try:
+                # Reconstruct SceneClassificationConfig
+                scene_config = SceneClassificationConfig(
+                    enabled=True,
+                    model_path=config_dict.get('scene_model_path', 'resources/models/scene_classifier/soccer_model_ver2.pth'),
+                    threshold=config_dict.get('scene_threshold', 27.0),
+                    min_scene_len=config_dict.get('scene_min_len', 15)
+                )
+
+                scene_classifier = SceneClassifier(scene_config)
+                scene_json_path = temp_dir / f"clip_{clip_index}_scenes.json"
+
+                logger.info(f"[Worker {clip_index}] Classifying scenes")
+                scene_metadata = scene_classifier.classify_clip(
+                    str(temp_clip),
+                    output_json_path=str(scene_json_path)
+                )
+                logger.info(f"[Worker {clip_index}] Classified {len(scene_metadata.segments)} scenes")
+
+            except Exception as e:
+                logger.warning(f"[Worker {clip_index}] Scene classification failed: {e}")
+                scene_json_path = None
+
+        # Step 3: Reframing (if enabled)
+        if reframing_enabled:
+            output_clip = output_dir / f"highlight_{clip_index+1}_vertical.mp4"
+
+            # Create AppConfig for reframing pipeline
+            app_config = AppConfig()
+            app_config.detection.confidence_threshold = config_dict.get('confidence_threshold', 0.05)
+            app_config.detection.detector_backend = config_dict.get('detector_backend', 'yolo')
+
+            reframing_pipeline = ReframingPipeline(app_config)
+
+            logger.info(f"[Worker {clip_index}] Reframing clip")
+            reframing_pipeline.process_goal_clip(
+                clip_path=str(temp_clip),
+                output_path=str(output_clip),
+                use_soccernet_model=config_dict.get('use_soccernet_model', True),
+                use_temporal_filter=config_dict.get('use_temporal_filter', True),
+                use_kalman_smoothing=config_dict.get('use_kalman_smoothing', True),
+                scene_metadata_path=str(scene_json_path) if scene_json_path else None
+            )
+
+            # Clean up temp file
+            temp_clip.unlink(missing_ok=True)
+
+            logger.info(f"[Worker {clip_index}] Clip generation complete: {output_clip}")
+            return (clip_index, str(output_clip), None)
+        else:
+            # No reframing, just return extracted clip
+            logger.info(f"[Worker {clip_index}] Clip extraction complete (no reframing): {temp_clip}")
+            return (clip_index, str(temp_clip), None)
+
+    except Exception as e:
+        error_msg = f"Clip {clip_index+1} processing failed: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return (clip_index, None, error_msg)
+
+
+# ============================================================================
+# CONVENIENCE FUNCTIONS
+# ============================================================================
+
 def generate_highlights(
     video_path: str,
     mode: str = "골",

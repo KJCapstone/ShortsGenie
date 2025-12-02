@@ -168,6 +168,10 @@ class PipelineConfig:
     num_workers: int = 4
     cache_dir: Path = field(default_factory=lambda: Path("cache/pipeline"))
 
+    # Parallel processing
+    enable_parallel_clip_generation: bool = True  # Enable parallel clip processing
+    max_parallel_workers: int = 2  # Max workers for parallel clip generation (GPU constrained)
+
     # Output
     output_dir: Path = field(default_factory=lambda: Path("output"))
     temp_dir: Path = field(default_factory=lambda: Path("output/temp"))

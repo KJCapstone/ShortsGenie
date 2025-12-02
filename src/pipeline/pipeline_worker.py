@@ -35,6 +35,8 @@ class PipelineWorker(QThread):
         video_path: str,
         mode: str,
         config: Optional[PipelineConfig] = None,
+        backend: str = "whisper",
+        groq_api_key: str = "",
         parent=None
     ):
         """Initialize pipeline worker.
@@ -43,6 +45,8 @@ class PipelineWorker(QThread):
             video_path: Path to input video file
             mode: Processing mode ("골", "경기", "밈")
             config: Optional custom configuration. If None, uses mode default.
+            backend: Transcription backend ("whisper" or "groq")
+            groq_api_key: Groq API key (if backend is "groq")
             parent: Parent QObject
         """
         super().__init__(parent)
@@ -51,6 +55,11 @@ class PipelineWorker(QThread):
         self.config = config or create_config_from_mode(mode)
         self.pipeline: Optional[HighlightPipeline] = None
         self._is_cancelled = False
+
+        # Apply backend settings to config
+        self.config.transcript_analysis.backend = backend
+        if backend == "groq" and groq_api_key:
+            self.config.transcript_analysis.groq_api_key = groq_api_key
 
     def run(self):
         """Run the pipeline in background thread.
@@ -79,6 +88,21 @@ class PipelineWorker(QThread):
 
             # Convert to dictionaries for GUI
             highlight_dicts = [h.to_dict() for h in highlights]
+
+            # Check for processing errors (e.g., no highlights extracted)
+            if self.pipeline.processing_errors:
+                # Add warnings to first highlight metadata if any
+                if highlight_dicts:
+                    if 'warnings' not in highlight_dicts[0]:
+                        highlight_dicts[0]['warnings'] = []
+                    highlight_dicts[0]['warnings'].extend(self.pipeline.processing_errors)
+                else:
+                    # No highlights and errors - emit warning
+                    for error in self.pipeline.processing_errors:
+                        if "지루하거나 오디오에 문제" in error:
+                            logger.warning(f"Pipeline warning: {error}")
+                            self.processing_failed.emit(error)
+                            return
 
             logger.info(f"PipelineWorker completed: {len(highlights)} highlights")
             self.processing_completed.emit(highlight_dicts)

@@ -54,9 +54,16 @@ class TranscriptAnalysisConfig(ModuleConfig):
     enabled: bool = True
     priority: int = 3
 
-    # Whisper settings
+    # Backend selection
+    backend: str = "whisper"  # "whisper" (local) or "groq" (cloud API)
+
+    # Whisper settings (for local backend)
     model_size: str = "base"  # tiny, base, small, medium, large
     language: str = "auto"  # Auto-detect language (supports 99 languages)
+
+    # Groq settings (for cloud backend)
+    groq_api_key: Optional[str] = None  # API key (from GUI or .env)
+    groq_model: str = "whisper-large-v3-turbo"  # whisper-large-v3-turbo or whisper-large-v3
 
     # AI analysis
     use_gemini: bool = True
@@ -152,7 +159,7 @@ class PipelineConfig:
 
     # Pipeline settings
     mode: str = "골"  # 골, 경기, 밈
-    max_highlights: int = 10  # Maximum number of highlights to generate
+    max_highlights: int = 6  # Maximum number of highlights to generate (~3min total)
     min_highlight_duration: float = 10.0  # Minimum seconds
     max_highlight_duration: float = 60.0  # Maximum seconds
 
@@ -160,6 +167,10 @@ class PipelineConfig:
     use_gpu: bool = True
     num_workers: int = 4
     cache_dir: Path = field(default_factory=lambda: Path("cache/pipeline"))
+
+    # Parallel processing
+    enable_parallel_clip_generation: bool = True  # Enable parallel clip processing
+    max_parallel_workers: int = 4  # Max workers for parallel clip generation (CPU-based, adjust based on CPU cores)
 
     # Output
     output_dir: Path = field(default_factory=lambda: Path("output"))

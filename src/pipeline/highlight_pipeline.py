@@ -5,6 +5,7 @@ This module implements a Strategy pattern-based pipeline that can:
 - Enable/disable modules via configuration
 - Handle graceful fallbacks when modules fail
 - Report detailed progress for GUI integration
+- Parallel clip generation for faster processing
 """
 
 import logging
@@ -13,11 +14,17 @@ from pathlib import Path
 from typing import List, Dict, Optional, Callable, Any, Tuple
 from dataclasses import dataclass
 import time
+from datetime import datetime
+import cv2
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import torch
 
 from src.pipeline.pipeline_config import PipelineConfig, create_config_from_mode
 from src.audio.scoreboard_ocr_detector import ScoreboardOCRDetector, GoalEvent
 from src.audio.highlight_filter import AudioHighlightFilter
 from src.audio.whisper_transcriber import WhisperTranscriber
+from src.audio.groq_transcriber import GroqTranscriber
 from src.ai.transcript_analyzer import TranscriptAnalyzer
 from src.scene.scene_classifier import SceneClassifier
 from src.core.video_editor import VideoEditor
@@ -107,6 +114,11 @@ class HighlightPipeline:
         self.highlights: List[Highlight] = []
         self.processing_errors: List[str] = []
 
+        # Performance tracking
+        self.start_time: Optional[float] = None
+        self.end_time: Optional[float] = None
+        self.performance_log_path = Path("output/performance_log.txt")
+
         logger.info(f"HighlightPipeline initialized in {self.config.mode} mode")
         logger.info(f"Enabled modules: {[name for name, _ in self.config.get_enabled_modules()]}")
 
@@ -121,6 +133,9 @@ class HighlightPipeline:
         Returns:
             List of Highlight objects sorted by score (best first)
         """
+        # Start timing
+        self.start_time = time.time()
+
         self.video_path = Path(video_path)
         self.highlights = []
         self.processing_errors = []
@@ -137,16 +152,31 @@ class HighlightPipeline:
         self.config.temp_dir.mkdir(parents=True, exist_ok=True)
 
         # Process with enabled modules in priority order
-        # Define progress weights for each module (total = 85%)
+        # Progress allocation based on ACTUAL enabled modules
+        # Note: OCR and Audio are disabled by default in goal mode
+        # Total: 60% for transcript analysis (Whisper + Gemini)
         module_weights = {
-            "ocr_detection": 20,      # Heavy module
-            "audio_analysis": 15,     # Medium module
-            "transcript_analysis": 50, # Heaviest (Whisper 30 + Gemini 20)
-            "scene_detection": 10,
-            "scene_classification": 5,
-            "reframing": 0,           # Handled separately
+            "ocr_detection": 20,      # Disabled in goal mode
+            "audio_analysis": 15,     # Disabled in goal mode
+            "transcript_analysis": 55, # 5-60% (Whisper 5-35%, Gemini 35-60%)
+            "scene_detection": 10,    # Disabled in goal mode
+            "scene_classification": 0, # Runs per-clip, not in main loop
+            "reframing": 0,           # Handled separately during clip generation
             "video_editing": 0        # Handled separately
         }
+
+        # Stage-specific progress points for better UX
+        # These match the actual execution flow in goal mode
+        self.PROGRESS_INIT = 0           # Initialization start
+        self.PROGRESS_WHISPER_START = 5  # Whisper transcription start
+        self.PROGRESS_WHISPER_END = 35   # Whisper transcription end
+        self.PROGRESS_GEMINI_START = 35  # Gemini analysis start
+        self.PROGRESS_GEMINI_END = 60    # Gemini analysis end
+        self.PROGRESS_POSTPROCESS_START = 60  # Post-processing start
+        self.PROGRESS_POSTPROCESS_END = 65    # Post-processing end
+        self.PROGRESS_GENERATION_START = 65   # Video generation start
+        self.PROGRESS_GENERATION_END = 95     # Video generation end
+        self.PROGRESS_COMPLETE = 100     # Final completion
 
         enabled_modules = self.config.get_enabled_modules()
 
@@ -173,7 +203,7 @@ class HighlightPipeline:
                 current_progress += module_weight
 
         # Post-processing: merge, rank, and filter highlights
-        self._report_progress("후처리", 90, "하이라이트 정리 및 순위 결정...")
+        self._report_progress("후처리", self.PROGRESS_POSTPROCESS_START, "하이라이트 병합 중...")
 
         # If no highlights were generated (all modules disabled), create dummy highlights for testing
         if not self.highlights:
@@ -181,13 +211,18 @@ class HighlightPipeline:
             self._create_dummy_highlights()
 
         self._post_process_highlights()
+        self._report_progress("후처리", self.PROGRESS_POSTPROCESS_END, "하이라이트 필터링 완료!")
 
         # Generate final clips if needed
         if self.config.reframing.enabled and self.highlights:
-            self._report_progress("영상 생성", 95, "최종 클립 생성 중...")
-            self._generate_final_clips()
+            self._report_progress("영상 생성", self.PROGRESS_GENERATION_START, "클립 생성 시작...")
+            self._generate_final_clips()  # Will report 65-95% internally
 
-        self._report_progress("완료", 100, f"총 {len(self.highlights)}개 하이라이트 생성!")
+        self._report_progress("완료", self.PROGRESS_COMPLETE, f"총 {len(self.highlights)}개 하이라이트 생성!")
+
+        # End timing and log performance
+        self.end_time = time.time()
+        self._log_performance()
 
         logger.info(f"Pipeline completed: {len(self.highlights)} highlights generated")
         if self.processing_errors:
@@ -304,27 +339,49 @@ class HighlightPipeline:
         """Process transcript and AI analysis to generate highlights.
 
         Args:
-            base_progress: Starting progress percentage
-            module_weight: Total weight allocated to this module (e.g., 50)
+            base_progress: Starting progress percentage (should be 5)
+            module_weight: Total weight allocated to this module (55 = covers 5-60%)
         """
-        # Whisper takes ~60% of this module's time, Gemini takes ~40%
-        whisper_weight = int(module_weight * 0.6)  # e.g., 30 out of 50
-        gemini_weight = int(module_weight * 0.4)   # e.g., 20 out of 50
+        # Use predefined progress points for better UX
+        # Whisper: 5-35% (30% range)
+        # Gemini: 35-60% (25% range)
 
-        self._report_progress("음성 인식", base_progress, "Whisper 모델 초기화 중...")
+        # Step 1: Initialize transcriber based on backend selection
+        backend = self.config.transcript_analysis.backend
 
-        # Step 1: Whisper transcription (optimized with beam_size=1)
         if self._whisper is None:
-            self._whisper = WhisperTranscriber(
-                model_size=self.config.transcript_analysis.model_size,
-                language=self.config.transcript_analysis.language
-            )
+            if backend == "groq":
+                # Use Groq API (cloud-based, very fast)
+                self._report_progress("음성 인식", self.PROGRESS_WHISPER_START, "Groq API 초기화 중...")
+                self._whisper = GroqTranscriber(
+                    api_key=self.config.transcript_analysis.groq_api_key,
+                    model=self.config.transcript_analysis.groq_model,
+                    language=self.config.transcript_analysis.language,
+                    verbose=False
+                )
+                progress_msg = "Groq API로 변환 중... (수 초 소요)"
+            else:
+                # Use local Whisper (default)
+                self._report_progress("음성 인식", self.PROGRESS_WHISPER_START, "Whisper 모델 초기화 중...")
+                self._whisper = WhisperTranscriber(
+                    model_size=self.config.transcript_analysis.model_size,
+                    language=self.config.transcript_analysis.language,
+                    verbose=False
+                )
+                progress_msg = "오디오 텍스트 변환 중... (약 10-30초 소요)"
 
-        self._report_progress("음성 인식", base_progress + 5, "오디오 텍스트 변환 중... (약 10-30초 소요)")
+        else:
+            # Transcriber already initialized
+            if backend == "groq":
+                progress_msg = "Groq API로 변환 중... (수 초 소요)"
+            else:
+                progress_msg = "오디오 텍스트 변환 중... (약 10-30초 소요)"
+
+        self._report_progress("음성 인식", self.PROGRESS_WHISPER_START + 5, progress_msg)
 
         whisper_result = self._whisper.transcribe(str(self.video_path))
 
-        self._report_progress("음성 인식", base_progress + whisper_weight, "음성 인식 완료!")
+        self._report_progress("음성 인식", self.PROGRESS_WHISPER_END, "음성 인식 완료!")
 
         # Whisper returns dict with 'segments', 'text', 'language'
         if isinstance(whisper_result, dict) and 'segments' in whisper_result:
@@ -340,18 +397,31 @@ class HighlightPipeline:
 
         # Step 2: AI analysis to extract highlights
         if self.config.transcript_analysis.use_gemini:
-            self._report_progress("AI 분석", base_progress + whisper_weight + 2, "Gemini로 하이라이트 추출 중... (약 10-60초 소요)")
+            self._report_progress("AI 분석", self.PROGRESS_GEMINI_START, "Gemini AI 초기화 중...")
 
             if self._transcript_analyzer is None:
-                self._transcript_analyzer = TranscriptAnalyzer(verbose=False)
+                self._transcript_analyzer = TranscriptAnalyzer(verbose=True)  # Enable debug output
+
+            self._report_progress("AI 분석", self.PROGRESS_GEMINI_START + 5, "Gemini로 하이라이트 추출 중... (약 10-60초 소요)")
 
             # Extract highlights from transcript using Gemini
             try:
+                logger.info(f"Starting Gemini analysis with transcript: {temp_transcript_path}")
                 ai_highlights = self._transcript_analyzer.analyze_transcript(
                     transcript_path=str(temp_transcript_path)
                 )
 
-                logger.info(f"AI extracted {len(ai_highlights)} highlights")
+                logger.info(f"✅ AI extracted {len(ai_highlights)} highlights")
+                print(f"\n🎯 DEBUG: Gemini returned {len(ai_highlights)} highlights")
+                for i, h in enumerate(ai_highlights[:3], 1):
+                    print(f"  {i}. [{h.get('start', 0):.1f}s - {h.get('end', 0):.1f}s] {h.get('type', 'unknown')}")
+
+                # Check if no highlights were extracted
+                if len(ai_highlights) == 0:
+                    error_msg = "이 경기는 매우 지루하거나 오디오에 문제가 있을 수 있습니다. 하이라이트를 추출할 수 없습니다."
+                    logger.warning(error_msg)
+                    self.processing_errors.append(error_msg)
+                    # Continue to create dummy highlights as fallback
 
                 # Sort highlights by start time to ensure chronological order
                 ai_highlights = sorted(ai_highlights, key=lambda x: x.get('start', 0))
@@ -371,7 +441,8 @@ class HighlightPipeline:
                         "goal": "⚽",
                         "chance": "🎯",
                         "save": "🧤",
-                        "foul": "🟨"
+                        "foul": "🟨",
+                        "moment": "✨"
                     }
                     emoji = type_emoji.get(highlight_type, "✨")
                     title = f"{emoji} {highlight_type.title()} #{i+1}"
@@ -389,6 +460,9 @@ class HighlightPipeline:
                         }
                     )
                     self.highlights.append(highlight)
+                    logger.info(f"Added highlight {i+1}: {title} [{highlight.start_time:.1f}s - {highlight.end_time:.1f}s]")
+
+                logger.info(f"✅ Total highlights in list after Gemini: {len(self.highlights)}")
 
             except Exception as e:
                 logger.error(f"Gemini analysis failed: {e}")
@@ -409,19 +483,25 @@ class HighlightPipeline:
                 else:
                     logger.warning("No existing highlights to enhance - Gemini failed and no fallback highlights")
 
-        self._report_progress("AI 분석", base_progress + module_weight, f"{len(self.highlights)}개 하이라이트 추출 완료!")
+        self._report_progress("AI 분석", self.PROGRESS_GEMINI_END, f"{len(self.highlights)}개 하이라이트 추출 완료!")
 
     def _post_process_highlights(self) -> None:
         """Post-process highlights: merge, filter, rank."""
+        logger.info(f"🔍 Starting post-process with {len(self.highlights)} highlights")
+        print(f"\n🔍 DEBUG: Post-processing {len(self.highlights)} highlights")
+
         if not self.highlights:
             logger.warning("No highlights to post-process")
             return
 
         # Step 1: Remove duplicates and overlaps
+        before_merge = len(self.highlights)
         self.highlights = self._merge_overlapping_highlights(self.highlights)
+        logger.info(f"After merge: {before_merge} → {len(self.highlights)} highlights")
 
         # Step 2: Filter by duration (with detailed logging)
         logger.info(f"Filtering highlights by duration ({self.config.min_highlight_duration}s - {self.config.max_highlight_duration}s)")
+        print(f"🔍 Duration filter: {self.config.min_highlight_duration}s - {self.config.max_highlight_duration}s")
 
         filtered_highlights = []
         for h in self.highlights:
@@ -448,18 +528,218 @@ class HighlightPipeline:
                 filtered_highlights.append(h)
 
         self.highlights = filtered_highlights
+        logger.info(f"After duration filter: {len(self.highlights)} highlights remain")
+        print(f"🔍 After duration filter: {len(self.highlights)} highlights remain")
 
-        # Step 3: Sort by score (best first)
-        self.highlights.sort(key=lambda h: h.score, reverse=True)
+        # Step 3: Select highlights - goals only, unless 6+ goals
+        logger.info(f"Selecting highlights (goals prioritized, max 5 unless 6+ goals)")
 
-        # Step 4: Limit to max_highlights
-        if len(self.highlights) > self.config.max_highlights:
-            self.highlights = self.highlights[:self.config.max_highlights]
+        # Separate goals from chances based on title/score
+        goals = [h for h in self.highlights if "Goal" in h.title or h.score >= 0.85]
+        chances = [h for h in self.highlights if h not in goals]
 
-        logger.info(f"Post-processing complete: {len(self.highlights)} highlights remain")
+        logger.info(f"Found {len(goals)} goals and {len(chances)} chances")
+
+        # NEW LOGIC: Prioritize goals, but include chances if no goals
+        selected_highlights = []
+
+        if len(goals) >= 6:
+            # 6+ goals: select all goals (up to 6)
+            goals.sort(key=lambda h: h.score, reverse=True)
+            selected_highlights = goals[:6]
+            logger.info(f"Selected 6 goals (6+ goals found)")
+        elif len(goals) > 0:
+            # 1-5 goals: select all goals only
+            selected_highlights = goals
+            logger.info(f"Selected {len(goals)} goals only (no chances added)")
+        else:
+            # No goals: select best chances (up to 5)
+            chances.sort(key=lambda h: h.score, reverse=True)
+            selected_highlights = chances[:5]
+            logger.info(f"No goals found - selected {len(selected_highlights)} best chances instead")
+
+        # Step 4: Sort ALL selected highlights chronologically
+        selected_highlights.sort(key=lambda h: h.start_time)
+        self.highlights = selected_highlights
+
+        logger.info(f"✅ Post-processing complete: {len(self.highlights)} highlights sorted chronologically")
+        print(f"✅ Final highlight count: {len(self.highlights)}")
+        for i, h in enumerate(self.highlights, 1):
+            print(f"  {i}. {h.title} [{h.start_time:.1f}s - {h.end_time:.1f}s] ({h.duration:.1f}s)")
 
     def _generate_final_clips(self) -> None:
-        """Generate final video clips with reframing if enabled."""
+        """Generate final video clips with reframing if enabled.
+
+        This method automatically chooses between parallel and sequential processing
+        based on configuration and the number of clips.
+        """
+        # Debug logging to stdout (always visible)
+        print(f"\n{'='*60}")
+        print(f"DEBUG: _generate_final_clips() called")
+        print(f"DEBUG: enable_parallel = {self.config.enable_parallel_clip_generation}")
+        print(f"DEBUG: highlights count = {len(self.highlights)}")
+        print(f"{'='*60}\n")
+
+        # Decide whether to use parallel processing
+        use_parallel = (
+            self.config.enable_parallel_clip_generation and
+            len(self.highlights) >= 3  # Only use parallel for 3+ clips
+        )
+
+        if use_parallel:
+            print(f"\n🔄 PARALLEL clip generation ({len(self.highlights)} clips)\n")
+            logger.info(f"Using PARALLEL clip generation ({len(self.highlights)} clips)")
+            self._generate_final_clips_parallel()
+        else:
+            print(f"\n⏩ SEQUENTIAL clip generation ({len(self.highlights)} clips)\n")
+            logger.info(f"Using SEQUENTIAL clip generation ({len(self.highlights)} clips)")
+            self._generate_final_clips_sequential()
+
+    def _generate_final_clips_parallel(self) -> None:
+        """Generate final clips using parallel processing with ProcessPoolExecutor."""
+        try:
+            # Determine number of workers
+            # For cross-platform stability (Windows/Mac/Linux), use CPU-based parallel processing
+            # Each worker runs detection/reframing independently on CPU
+            max_workers = min(self.config.max_parallel_workers, os.cpu_count() or 2)
+
+            # Detect available hardware for info only (workers will use CPU)
+            device_info = "CPU"
+            if torch.cuda.is_available():
+                device_info = "CUDA (available but using CPU workers for stability)"
+            elif torch.backends.mps.is_available():
+                device_info = "MPS (available but using CPU workers for stability)"
+
+            logger.info(f"🔄 Parallel processing with {max_workers} CPU worker(s)")
+            logger.info(f"   Device info: {device_info}")
+
+            # Prepare configuration dictionary (must be picklable)
+            config_dict = {
+                'temp_dir': str(self.config.temp_dir),
+                'output_dir': str(self.config.output_dir),
+                'scene_classification_enabled': self.config.scene_classification.enabled,
+                'reframing_enabled': self.config.reframing.enabled,
+                'confidence_threshold': self.config.reframing.confidence_threshold,
+                'detector_backend': getattr(self.config.reframing, 'detector_backend', 'yolo'),
+                'use_soccernet_model': self.config.reframing.use_soccernet_model,
+                'use_temporal_filter': self.config.reframing.use_temporal_filter,
+                'use_kalman_smoothing': self.config.reframing.use_kalman_smoothing,
+                'scene_model_path': self.config.scene_classification.model_path,
+                'scene_threshold': self.config.scene_classification.threshold,
+                'scene_min_len': self.config.scene_classification.min_scene_len,
+            }
+
+            # Prepare highlight data (must be picklable)
+            highlight_dicts = [
+                {
+                    'start_time': h.start_time,
+                    'end_time': h.end_time,
+                    'title': h.title,
+                    'description': h.description
+                }
+                for h in self.highlights
+            ]
+
+            logger.info(f"Starting parallel clip generation with {max_workers} workers")
+
+            # Submit all tasks
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                # Submit jobs
+                futures = {
+                    executor.submit(
+                        _process_single_clip_worker,
+                        i,
+                        highlight_dicts[i],
+                        str(self.video_path),
+                        config_dict
+                    ): i for i in range(len(self.highlights))
+                }
+
+                # Collect results as they complete
+                completed_count = 0
+                for future in as_completed(futures):
+                    clip_index = futures[future]
+
+                    try:
+                        idx, output_clip_path, error_msg = future.result()
+
+                        if error_msg:
+                            logger.error(f"Clip {idx+1} failed: {error_msg}")
+                            self.processing_errors.append(error_msg)
+                        elif output_clip_path:
+                            self.highlights[idx].video_path = output_clip_path
+                            logger.info(f"✅ Clip {idx+1}/{len(self.highlights)} completed: {output_clip_path}")
+
+                        completed_count += 1
+                        progress = 95 + int(completed_count / len(self.highlights) * 4)
+                        self._report_progress(
+                            "영상 생성",
+                            progress,
+                            f"클립 {completed_count}/{len(self.highlights)} 완료"
+                        )
+
+                    except Exception as e:
+                        logger.error(f"Clip {clip_index+1} processing failed: {e}")
+                        self.processing_errors.append(f"Clip {clip_index+1} generation failed")
+
+            # Check if any clips were successfully generated
+            if completed_count == 0:
+                logger.error("Parallel processing failed for all clips, falling back to sequential")
+                self._generate_final_clips_sequential()
+                return
+
+            logger.info(f"Parallel clip generation complete: {completed_count}/{len(self.highlights)} successful")
+
+            # Step 4: Merge all clips into final_shorts.mp4
+            if self.config.reframing.enabled and len(self.highlights) > 0:
+                # Collect successful clip paths in correct order (as Path objects)
+                successful_clips = []
+                for i, highlight in enumerate(self.highlights):
+                    if highlight.video_path and Path(highlight.video_path).exists():
+                        successful_clips.append(Path(highlight.video_path))  # Convert to Path object
+                        logger.debug(f"Clip {i+1} ready for merge: {highlight.video_path}")
+
+                # Validate clip existence
+                if len(successful_clips) == 0:
+                    logger.error("No clips available for merge after parallel processing")
+                    return
+
+                missing_count = len(self.highlights) - len(successful_clips)
+                if missing_count > 0:
+                    logger.warning(f"Missing {missing_count} clips, proceeding with {len(successful_clips)} available clips")
+
+                # Report merge progress
+                self._report_progress("영상 병합", 98, f"{len(successful_clips)}개 클립 병합 중...")
+                logger.info(f"Merging {len(successful_clips)} clips into final_shorts.mp4")
+
+                try:
+                    final_shorts = self._merge_clips_to_final_shorts(
+                        successful_clips,
+                        self.video_path
+                    )
+
+                    # Update first highlight to point to merged video
+                    self.highlights[0].video_path = str(final_shorts)
+
+                    # Clear other highlights' video paths (they're now part of merged video)
+                    for i in range(1, len(self.highlights)):
+                        self.highlights[i].video_path = None
+
+                    logger.info(f"✅ Final shorts video created: {final_shorts}")
+
+                except Exception as e:
+                    logger.error(f"Failed to merge clips: {e}", exc_info=True)
+                    self.processing_errors.append(f"Video merge failed: {str(e)}")
+                    # Keep individual clip paths if merge fails
+                    logger.warning("Merge failed, keeping individual clip paths")
+
+        except Exception as e:
+            logger.error(f"Parallel processing failed with exception: {e}", exc_info=True)
+            logger.info("Falling back to sequential processing")
+            self._generate_final_clips_sequential()
+
+    def _generate_final_clips_sequential(self) -> None:
+        """Generate final clips sequentially with granular progress tracking."""
         if self._video_editor is None:
             self._video_editor = VideoEditor()
 
@@ -486,9 +766,21 @@ class HighlightPipeline:
                 logger.error(f"Failed to initialize scene classifier: {e}")
                 self.config.scene_classification.enabled = False
 
+        # Calculate progress per clip (65-95% range = 30% total)
+        total_clips = len(self.highlights)
+        progress_per_clip = (self.PROGRESS_GENERATION_END - self.PROGRESS_GENERATION_START) / total_clips if total_clips > 0 else 0
+
         for i, highlight in enumerate(self.highlights):
             try:
+                # Calculate current progress
+                current_progress = self.PROGRESS_GENERATION_START + int(i * progress_per_clip)
+
                 logger.info(f"Generating clip {i+1}/{len(self.highlights)}")
+                self._report_progress(
+                    "영상 생성",
+                    current_progress,
+                    f"클립 {i+1}/{total_clips} 생성 중..."
+                )
 
                 # Step 1: Extract clip
                 temp_clip = self.config.temp_dir / f"clip_{i}_temp.mp4"
@@ -572,6 +864,8 @@ class HighlightPipeline:
 
                 if clip_paths:
                     # Merge clips with original audio
+                    self._report_progress("영상 생성", self.PROGRESS_GENERATION_END, f"{len(clip_paths)}개 클립 생성 완료!")
+
                     final_shorts = self._merge_clips_to_final_shorts(
                         clip_paths,
                         self.video_path
@@ -815,8 +1109,244 @@ class HighlightPipeline:
         logger.info(f"✅ Final shorts created: {output_path}")
         return output_path
 
+    def _get_video_duration(self, video_path: Path) -> float:
+        """Get video duration in seconds using OpenCV.
 
-# Convenience function for simple usage
+        Args:
+            video_path: Path to video file
+
+        Returns:
+            Duration in seconds
+        """
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            logger.warning(f"Could not open video to get duration: {video_path}")
+            return 0.0
+
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        cap.release()
+
+        if fps > 0:
+            return frame_count / fps
+        return 0.0
+
+    def _log_performance(self) -> None:
+        """Log pipeline performance metrics to console and file."""
+        if self.start_time is None or self.end_time is None:
+            logger.warning("Cannot log performance - timing not recorded")
+            return
+
+        # Calculate metrics
+        processing_time = self.end_time - self.start_time
+        input_duration = self._get_video_duration(self.video_path)
+
+        # Calculate total highlight duration
+        total_highlight_duration = sum(h.duration for h in self.highlights)
+
+        # Format time as HH:MM:SS
+        def format_duration(seconds: float) -> str:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            secs = int(seconds % 60)
+            if hours > 0:
+                return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+            return f"{minutes:02d}:{secs:02d}"
+
+        # Get backend info
+        backend = self.config.transcript_analysis.backend
+        backend_display = "Groq API" if backend == "groq" else "Local Whisper"
+
+        # Log to console
+        logger.info("=" * 70)
+        logger.info("📊 PIPELINE PERFORMANCE REPORT")
+        logger.info("=" * 70)
+        logger.info(f"📁 Input Video: {self.video_path.name}")
+        logger.info(f"⏱️  Input Duration: {format_duration(input_duration)} ({input_duration:.1f}s)")
+        logger.info(f"🎬 Highlights Generated: {len(self.highlights)}")
+        logger.info(f"⏱️  Total Highlight Duration: {format_duration(total_highlight_duration)} ({total_highlight_duration:.1f}s)")
+        logger.info(f"⚡ Processing Time: {format_duration(processing_time)} ({processing_time:.1f}s)")
+        logger.info(f"🚀 Speed: {input_duration / processing_time:.2f}x realtime" if processing_time > 0 else "🚀 Speed: N/A")
+        logger.info(f"🎙️  Transcription Backend: {backend_display}")
+        logger.info("=" * 70)
+
+        # Log to file
+        try:
+            # Ensure output directory exists
+            self.performance_log_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Prepare log entry
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_entry = f"""
+{'=' * 80}
+Timestamp: {timestamp}
+Video: {self.video_path.name}
+Input Duration: {format_duration(input_duration)} ({input_duration:.1f}s)
+Highlights: {len(self.highlights)}
+Highlight Duration: {format_duration(total_highlight_duration)} ({total_highlight_duration:.1f}s)
+Processing Time: {format_duration(processing_time)} ({processing_time:.1f}s)
+Speed: {input_duration / processing_time:.2f}x realtime
+Mode: {self.config.mode}
+Transcription Backend: {backend_display}
+{'=' * 80}
+"""
+
+            # Append to file
+            with open(self.performance_log_path, "a", encoding="utf-8") as f:
+                f.write(log_entry)
+
+            logger.info(f"📝 Performance log saved to: {self.performance_log_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to write performance log: {e}")
+
+
+# ============================================================================
+# PARALLEL PROCESSING WORKER FUNCTION
+# ============================================================================
+# This must be at module level (not inside class) for multiprocessing to work
+
+def _process_single_clip_worker(
+    clip_index: int,
+    highlight_dict: Dict[str, Any],
+    video_path: str,
+    config_dict: Dict[str, Any]
+) -> Tuple[int, Optional[str], Optional[str]]:
+    """Worker function for parallel clip processing.
+
+    This function is executed in a separate process and must:
+    1. Be picklable (top-level function, not class method)
+    2. Create its own model instances (not shared across processes)
+    3. Handle all errors gracefully
+
+    Args:
+        clip_index: Index of highlight in the list
+        highlight_dict: Highlight data as dictionary (start_time, end_time, etc.)
+        video_path: Path to original video
+        config_dict: Pipeline configuration as dictionary
+
+    Returns:
+        Tuple of (clip_index, output_clip_path, error_message)
+        - clip_index: Index of processed clip
+        - output_clip_path: Path to generated clip (None if failed)
+        - error_message: Error description (None if successful)
+    """
+    import sys
+    from pathlib import Path
+
+    # Re-add app to path for imports (needed in subprocess)
+    app_dir = Path(__file__).parent.parent.parent
+    if str(app_dir) not in sys.path:
+        sys.path.insert(0, str(app_dir))
+
+    try:
+        import torch
+        from src.scene.scene_classifier import SceneClassifier
+        from src.pipeline.reframing_pipeline import ReframingPipeline
+        from src.core.video_editor import VideoEditor
+        from src.utils.config import AppConfig
+        from src.pipeline.pipeline_config import SceneClassificationConfig, ReframingConfig
+
+        # Force CPU mode for cross-platform stability and true parallel processing
+        # This ensures workers don't compete for GPU resources and works on Windows/Mac/Linux
+        import os
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''  # Disable CUDA
+        os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'  # Disable MPS
+
+        logger = logging.getLogger(__name__)
+        logger.info(f"[Worker {clip_index}] Starting clip processing in subprocess (CPU mode)")
+
+        # Reconstruct configuration from dict
+        temp_dir = Path(config_dict['temp_dir'])
+        output_dir = Path(config_dict['output_dir'])
+        scene_classification_enabled = config_dict.get('scene_classification_enabled', True)
+        reframing_enabled = config_dict.get('reframing_enabled', True)
+
+        # Reconstruct highlight data
+        start_time = highlight_dict['start_time']
+        end_time = highlight_dict['end_time']
+
+        # Initialize modules (each worker gets its own instances)
+        video_editor = VideoEditor()
+
+        # Step 1: Extract clip
+        temp_clip = temp_dir / f"clip_{clip_index}_temp.mp4"
+        logger.info(f"[Worker {clip_index}] Extracting clip: {start_time:.1f}s - {end_time:.1f}s")
+
+        video_editor.cut_segment(
+            str(video_path),
+            str(temp_clip),
+            start_time,
+            end_time
+        )
+
+        # Step 2: Scene classification (if enabled)
+        scene_json_path = None
+        if scene_classification_enabled:
+            try:
+                # Reconstruct SceneClassificationConfig
+                scene_config = SceneClassificationConfig(
+                    enabled=True,
+                    model_path=config_dict.get('scene_model_path', 'resources/models/scene_classifier/soccer_model_ver2.pth'),
+                    threshold=config_dict.get('scene_threshold', 27.0),
+                    min_scene_len=config_dict.get('scene_min_len', 15)
+                )
+
+                scene_classifier = SceneClassifier(scene_config)
+                scene_json_path = temp_dir / f"clip_{clip_index}_scenes.json"
+
+                logger.info(f"[Worker {clip_index}] Classifying scenes")
+                scene_metadata = scene_classifier.classify_clip(
+                    str(temp_clip),
+                    output_json_path=str(scene_json_path)
+                )
+                logger.info(f"[Worker {clip_index}] Classified {len(scene_metadata.segments)} scenes")
+
+            except Exception as e:
+                logger.warning(f"[Worker {clip_index}] Scene classification failed: {e}")
+                scene_json_path = None
+
+        # Step 3: Reframing (if enabled)
+        if reframing_enabled:
+            output_clip = output_dir / f"highlight_{clip_index+1}_vertical.mp4"
+
+            # Create AppConfig for reframing pipeline
+            app_config = AppConfig()
+            app_config.detection.confidence_threshold = config_dict.get('confidence_threshold', 0.05)
+            app_config.detection.detector_backend = config_dict.get('detector_backend', 'yolo')
+
+            reframing_pipeline = ReframingPipeline(app_config)
+
+            logger.info(f"[Worker {clip_index}] Reframing clip")
+            reframing_pipeline.process_goal_clip(
+                clip_path=str(temp_clip),
+                output_path=str(output_clip),
+                use_soccernet_model=config_dict.get('use_soccernet_model', True),
+                use_temporal_filter=config_dict.get('use_temporal_filter', True),
+                use_kalman_smoothing=config_dict.get('use_kalman_smoothing', True),
+                scene_metadata_path=str(scene_json_path) if scene_json_path else None
+            )
+
+            # Clean up temp file
+            temp_clip.unlink(missing_ok=True)
+
+            logger.info(f"[Worker {clip_index}] Clip generation complete: {output_clip}")
+            return (clip_index, str(output_clip), None)
+        else:
+            # No reframing, just return extracted clip
+            logger.info(f"[Worker {clip_index}] Clip extraction complete (no reframing): {temp_clip}")
+            return (clip_index, str(temp_clip), None)
+
+    except Exception as e:
+        error_msg = f"Clip {clip_index+1} processing failed: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return (clip_index, None, error_msg)
+
+
+# ============================================================================
+# CONVENIENCE FUNCTIONS
+# ============================================================================
+
 def generate_highlights(
     video_path: str,
     mode: str = "골",

@@ -41,13 +41,16 @@ def get_video_resolution(video_path: str) -> Tuple[int, int]:
 
 
 class VideoReader:
-    """Simple video reader using OpenCV."""
+    """Simple video reader using OpenCV with optional frame stepping for fps downsampling."""
 
-    def __init__(self, video_path: str):
+    def __init__(self, video_path: str, target_fps: Optional[float] = None):
         """Initialize video reader.
 
         Args:
             video_path: Path to video file
+            target_fps: Target fps for processing. If None or >= source fps, uses source fps.
+                       If < source fps, skips frames to achieve target fps.
+                       Example: 60fps source with target_fps=30 will read every 2nd frame.
         """
         self.video_path = video_path
         self.cap = cv2.VideoCapture(video_path)
@@ -61,8 +64,28 @@ class VideoReader:
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.frame_count = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
+        # Calculate frame stepping for fps downsampling
+        if target_fps is None or target_fps >= self.fps:
+            # No downsampling needed
+            self.target_fps = self.fps
+            self.frame_step = 1
+            self.effective_fps = self.fps
+            self.effective_frame_count = self.frame_count
+        else:
+            # Downsample by skipping frames
+            self.target_fps = target_fps
+            self.frame_step = max(1, round(self.fps / target_fps))
+            self.effective_fps = self.fps / self.frame_step
+            self.effective_frame_count = self.frame_count // self.frame_step
+
+        self._current_frame_idx = 0  # Track current frame index for stepping
+
         print(f"[VideoReader] Opened: {video_path}")
         print(f"[VideoReader] Size: {self.width}x{self.height}, FPS: {self.fps}, Frames: {self.frame_count}")
+        if self.frame_step > 1:
+            print(f"[VideoReader] Frame stepping: {self.frame_step} "
+                  f"({self.fps:.2f}fps → {self.effective_fps:.2f}fps, "
+                  f"{self.frame_count} → {self.effective_frame_count} frames)")
 
     def __enter__(self):
         """Context manager entry."""
@@ -77,10 +100,23 @@ class VideoReader:
         return self
 
     def __next__(self) -> np.ndarray:
-        """Read next frame."""
+        """Read next frame with frame stepping applied.
+
+        Returns:
+            Next frame after skipping frame_step-1 frames
+        """
+        # Skip frame_step-1 frames
+        for _ in range(self.frame_step - 1):
+            ret = self.cap.grab()  # Fast skip without decoding
+            if not ret:
+                raise StopIteration
+
+        # Read the actual frame
         ret, frame = self.cap.read()
         if not ret:
             raise StopIteration
+
+        self._current_frame_idx += 1
         return frame
 
     def read(self) -> Tuple[bool, Optional[np.ndarray]]:

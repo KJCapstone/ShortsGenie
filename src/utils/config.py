@@ -77,8 +77,8 @@ class ROIConfig:
     min_roi_size: int = 200  # Minimum ROI size in pixels
     use_smoothing: bool = True
 
-    # ROI scaling parameter (zoom level)
-    roi_scale_factor: float = 1.3  # Scale factor for ROI size (>1.0 = wider view, <1.0 = tighter crop)
+    # ROI scaling parameter (zoom level) - NOT USED, use CropperConfig.letterbox instead
+    roi_scale_factor: float = 1.0  # Scale factor for ROI size (>1.0 = wider view, <1.0 = tighter crop)
 
     # Hysteresis parameters (dead zone to prevent jittery camera movement)
     use_hysteresis: bool = True  # Enable hysteresis-based ROI update
@@ -198,8 +198,8 @@ class AudioConfig:
 @dataclass
 class CropperConfig:
     """Video cropping and letterboxing configuration."""
-    letterbox_top: int = 288  # Top black bar size in pixels (15% of 1920)
-    letterbox_bottom: int = 288  # Bottom black bar size in pixels (15% of 1920)
+    letterbox_top: int = 480  # Top black bar size in pixels (25% of 1920, increased for wider view)
+    letterbox_bottom: int = 480  # Bottom black bar size in pixels (25% of 1920, increased for wider view)
     # Note: No horizontal letterbox - width always fills completely (1080px)
 
 

@@ -384,15 +384,19 @@ class HighlightPipeline:
             self._report_progress("AI 분석", base_progress + whisper_weight + 2, "Gemini로 하이라이트 추출 중... (약 10-60초 소요)")
 
             if self._transcript_analyzer is None:
-                self._transcript_analyzer = TranscriptAnalyzer(verbose=False)
+                self._transcript_analyzer = TranscriptAnalyzer(verbose=True)  # Enable debug output
 
             # Extract highlights from transcript using Gemini
             try:
+                logger.info(f"Starting Gemini analysis with transcript: {temp_transcript_path}")
                 ai_highlights = self._transcript_analyzer.analyze_transcript(
                     transcript_path=str(temp_transcript_path)
                 )
 
-                logger.info(f"AI extracted {len(ai_highlights)} highlights")
+                logger.info(f"✅ AI extracted {len(ai_highlights)} highlights")
+                print(f"\n🎯 DEBUG: Gemini returned {len(ai_highlights)} highlights")
+                for i, h in enumerate(ai_highlights[:3], 1):
+                    print(f"  {i}. [{h.get('start', 0):.1f}s - {h.get('end', 0):.1f}s] {h.get('type', 'unknown')}")
 
                 # Check if no highlights were extracted
                 if len(ai_highlights) == 0:
@@ -419,7 +423,8 @@ class HighlightPipeline:
                         "goal": "⚽",
                         "chance": "🎯",
                         "save": "🧤",
-                        "foul": "🟨"
+                        "foul": "🟨",
+                        "moment": "✨"
                     }
                     emoji = type_emoji.get(highlight_type, "✨")
                     title = f"{emoji} {highlight_type.title()} #{i+1}"
@@ -437,6 +442,9 @@ class HighlightPipeline:
                         }
                     )
                     self.highlights.append(highlight)
+                    logger.info(f"Added highlight {i+1}: {title} [{highlight.start_time:.1f}s - {highlight.end_time:.1f}s]")
+
+                logger.info(f"✅ Total highlights in list after Gemini: {len(self.highlights)}")
 
             except Exception as e:
                 logger.error(f"Gemini analysis failed: {e}")
@@ -461,15 +469,21 @@ class HighlightPipeline:
 
     def _post_process_highlights(self) -> None:
         """Post-process highlights: merge, filter, rank."""
+        logger.info(f"🔍 Starting post-process with {len(self.highlights)} highlights")
+        print(f"\n🔍 DEBUG: Post-processing {len(self.highlights)} highlights")
+
         if not self.highlights:
             logger.warning("No highlights to post-process")
             return
 
         # Step 1: Remove duplicates and overlaps
+        before_merge = len(self.highlights)
         self.highlights = self._merge_overlapping_highlights(self.highlights)
+        logger.info(f"After merge: {before_merge} → {len(self.highlights)} highlights")
 
         # Step 2: Filter by duration (with detailed logging)
         logger.info(f"Filtering highlights by duration ({self.config.min_highlight_duration}s - {self.config.max_highlight_duration}s)")
+        print(f"🔍 Duration filter: {self.config.min_highlight_duration}s - {self.config.max_highlight_duration}s")
 
         filtered_highlights = []
         for h in self.highlights:
@@ -496,6 +510,8 @@ class HighlightPipeline:
                 filtered_highlights.append(h)
 
         self.highlights = filtered_highlights
+        logger.info(f"After duration filter: {len(self.highlights)} highlights remain")
+        print(f"🔍 After duration filter: {len(self.highlights)} highlights remain")
 
         # Step 3: Select highlights - goals only, unless 6+ goals
         logger.info(f"Selecting highlights (goals prioritized, max 5 unless 6+ goals)")
@@ -506,7 +522,7 @@ class HighlightPipeline:
 
         logger.info(f"Found {len(goals)} goals and {len(chances)} chances")
 
-        # NEW LOGIC: Only select goals, don't force chances
+        # NEW LOGIC: Prioritize goals, but include chances if no goals
         selected_highlights = []
 
         if len(goals) >= 6:
@@ -514,16 +530,24 @@ class HighlightPipeline:
             goals.sort(key=lambda h: h.score, reverse=True)
             selected_highlights = goals[:6]
             logger.info(f"Selected 6 goals (6+ goals found)")
-        else:
-            # Less than 6 goals: select all goals only (no chances)
+        elif len(goals) > 0:
+            # 1-5 goals: select all goals only
             selected_highlights = goals
             logger.info(f"Selected {len(goals)} goals only (no chances added)")
+        else:
+            # No goals: select best chances (up to 5)
+            chances.sort(key=lambda h: h.score, reverse=True)
+            selected_highlights = chances[:5]
+            logger.info(f"No goals found - selected {len(selected_highlights)} best chances instead")
 
         # Step 4: Sort ALL selected highlights chronologically
         selected_highlights.sort(key=lambda h: h.start_time)
         self.highlights = selected_highlights
 
-        logger.info(f"Post-processing complete: {len(self.highlights)} highlights sorted chronologically")
+        logger.info(f"✅ Post-processing complete: {len(self.highlights)} highlights sorted chronologically")
+        print(f"✅ Final highlight count: {len(self.highlights)}")
+        for i, h in enumerate(self.highlights, 1):
+            print(f"  {i}. {h.title} [{h.start_time:.1f}s - {h.end_time:.1f}s] ({h.duration:.1f}s)")
 
     def _generate_final_clips(self) -> None:
         """Generate final video clips with reframing if enabled.
@@ -531,6 +555,13 @@ class HighlightPipeline:
         This method automatically chooses between parallel and sequential processing
         based on configuration and the number of clips.
         """
+        # Debug logging to stdout (always visible)
+        print(f"\n{'='*60}")
+        print(f"DEBUG: _generate_final_clips() called")
+        print(f"DEBUG: enable_parallel = {self.config.enable_parallel_clip_generation}")
+        print(f"DEBUG: highlights count = {len(self.highlights)}")
+        print(f"{'='*60}\n")
+
         # Decide whether to use parallel processing
         use_parallel = (
             self.config.enable_parallel_clip_generation and
@@ -538,98 +569,156 @@ class HighlightPipeline:
         )
 
         if use_parallel:
+            print(f"\n🔄 PARALLEL clip generation ({len(self.highlights)} clips)\n")
             logger.info(f"Using PARALLEL clip generation ({len(self.highlights)} clips)")
             self._generate_final_clips_parallel()
         else:
+            print(f"\n⏩ SEQUENTIAL clip generation ({len(self.highlights)} clips)\n")
             logger.info(f"Using SEQUENTIAL clip generation ({len(self.highlights)} clips)")
             self._generate_final_clips_sequential()
 
     def _generate_final_clips_parallel(self) -> None:
         """Generate final clips using parallel processing with ProcessPoolExecutor."""
-        # Determine number of workers
-        max_workers = self.config.max_parallel_workers
+        try:
+            # Determine number of workers
+            # For cross-platform stability (Windows/Mac/Linux), use CPU-based parallel processing
+            # Each worker runs detection/reframing independently on CPU
+            max_workers = min(self.config.max_parallel_workers, os.cpu_count() or 2)
 
-        # If GPU available, limit to 1-2 workers to avoid memory issues
-        if torch.cuda.is_available():
-            max_workers = min(max_workers, 2)
-            logger.info(f"GPU detected, limiting workers to {max_workers}")
-        elif torch.backends.mps.is_available():
-            max_workers = min(max_workers, 1)  # MPS doesn't handle multi-process well
-            logger.info(f"MPS detected, limiting workers to {max_workers}")
-        else:
-            max_workers = min(max_workers, os.cpu_count() or 2)
-            logger.info(f"CPU only, using {max_workers} workers")
+            # Detect available hardware for info only (workers will use CPU)
+            device_info = "CPU"
+            if torch.cuda.is_available():
+                device_info = "CUDA (available but using CPU workers for stability)"
+            elif torch.backends.mps.is_available():
+                device_info = "MPS (available but using CPU workers for stability)"
 
-        # Prepare configuration dictionary (must be picklable)
-        config_dict = {
-            'temp_dir': str(self.config.temp_dir),
-            'output_dir': str(self.config.output_dir),
-            'scene_classification_enabled': self.config.scene_classification.enabled,
-            'reframing_enabled': self.config.reframing.enabled,
-            'confidence_threshold': self.config.reframing.confidence_threshold,
-            'detector_backend': getattr(self.config.reframing, 'detector_backend', 'yolo'),
-            'use_soccernet_model': self.config.reframing.use_soccernet_model,
-            'use_temporal_filter': self.config.reframing.use_temporal_filter,
-            'use_kalman_smoothing': self.config.reframing.use_kalman_smoothing,
-            'scene_model_path': self.config.scene_classification.model_path,
-            'scene_threshold': self.config.scene_classification.threshold,
-            'scene_min_len': self.config.scene_classification.min_scene_len,
-        }
+            logger.info(f"🔄 Parallel processing with {max_workers} CPU worker(s)")
+            logger.info(f"   Device info: {device_info}")
 
-        # Prepare highlight data (must be picklable)
-        highlight_dicts = [
-            {
-                'start_time': h.start_time,
-                'end_time': h.end_time,
-                'title': h.title,
-                'description': h.description
-            }
-            for h in self.highlights
-        ]
-
-        logger.info(f"Starting parallel clip generation with {max_workers} workers")
-
-        # Submit all tasks
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # Submit jobs
-            futures = {
-                executor.submit(
-                    _process_single_clip_worker,
-                    i,
-                    highlight_dicts[i],
-                    str(self.video_path),
-                    config_dict
-                ): i for i in range(len(self.highlights))
+            # Prepare configuration dictionary (must be picklable)
+            config_dict = {
+                'temp_dir': str(self.config.temp_dir),
+                'output_dir': str(self.config.output_dir),
+                'scene_classification_enabled': self.config.scene_classification.enabled,
+                'reframing_enabled': self.config.reframing.enabled,
+                'confidence_threshold': self.config.reframing.confidence_threshold,
+                'detector_backend': getattr(self.config.reframing, 'detector_backend', 'yolo'),
+                'use_soccernet_model': self.config.reframing.use_soccernet_model,
+                'use_temporal_filter': self.config.reframing.use_temporal_filter,
+                'use_kalman_smoothing': self.config.reframing.use_kalman_smoothing,
+                'scene_model_path': self.config.scene_classification.model_path,
+                'scene_threshold': self.config.scene_classification.threshold,
+                'scene_min_len': self.config.scene_classification.min_scene_len,
             }
 
-            # Collect results as they complete
-            completed_count = 0
-            for future in as_completed(futures):
-                clip_index = futures[future]
+            # Prepare highlight data (must be picklable)
+            highlight_dicts = [
+                {
+                    'start_time': h.start_time,
+                    'end_time': h.end_time,
+                    'title': h.title,
+                    'description': h.description
+                }
+                for h in self.highlights
+            ]
+
+            logger.info(f"Starting parallel clip generation with {max_workers} workers")
+
+            # Submit all tasks
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                # Submit jobs
+                futures = {
+                    executor.submit(
+                        _process_single_clip_worker,
+                        i,
+                        highlight_dicts[i],
+                        str(self.video_path),
+                        config_dict
+                    ): i for i in range(len(self.highlights))
+                }
+
+                # Collect results as they complete
+                completed_count = 0
+                for future in as_completed(futures):
+                    clip_index = futures[future]
+
+                    try:
+                        idx, output_clip_path, error_msg = future.result()
+
+                        if error_msg:
+                            logger.error(f"Clip {idx+1} failed: {error_msg}")
+                            self.processing_errors.append(error_msg)
+                        elif output_clip_path:
+                            self.highlights[idx].video_path = output_clip_path
+                            logger.info(f"✅ Clip {idx+1}/{len(self.highlights)} completed: {output_clip_path}")
+
+                        completed_count += 1
+                        progress = 95 + int(completed_count / len(self.highlights) * 4)
+                        self._report_progress(
+                            "영상 생성",
+                            progress,
+                            f"클립 {completed_count}/{len(self.highlights)} 완료"
+                        )
+
+                    except Exception as e:
+                        logger.error(f"Clip {clip_index+1} processing failed: {e}")
+                        self.processing_errors.append(f"Clip {clip_index+1} generation failed")
+
+            # Check if any clips were successfully generated
+            if completed_count == 0:
+                logger.error("Parallel processing failed for all clips, falling back to sequential")
+                self._generate_final_clips_sequential()
+                return
+
+            logger.info(f"Parallel clip generation complete: {completed_count}/{len(self.highlights)} successful")
+
+            # Step 4: Merge all clips into final_shorts.mp4
+            if self.config.reframing.enabled and len(self.highlights) > 0:
+                # Collect successful clip paths in correct order (as Path objects)
+                successful_clips = []
+                for i, highlight in enumerate(self.highlights):
+                    if highlight.video_path and Path(highlight.video_path).exists():
+                        successful_clips.append(Path(highlight.video_path))  # Convert to Path object
+                        logger.debug(f"Clip {i+1} ready for merge: {highlight.video_path}")
+
+                # Validate clip existence
+                if len(successful_clips) == 0:
+                    logger.error("No clips available for merge after parallel processing")
+                    return
+
+                missing_count = len(self.highlights) - len(successful_clips)
+                if missing_count > 0:
+                    logger.warning(f"Missing {missing_count} clips, proceeding with {len(successful_clips)} available clips")
+
+                # Report merge progress
+                self._report_progress("영상 병합", 98, f"{len(successful_clips)}개 클립 병합 중...")
+                logger.info(f"Merging {len(successful_clips)} clips into final_shorts.mp4")
 
                 try:
-                    idx, output_clip_path, error_msg = future.result()
-
-                    if error_msg:
-                        logger.error(f"Clip {idx+1} failed: {error_msg}")
-                        self.processing_errors.append(error_msg)
-                    elif output_clip_path:
-                        self.highlights[idx].video_path = output_clip_path
-                        logger.info(f"✅ Clip {idx+1}/{len(self.highlights)} completed: {output_clip_path}")
-
-                    completed_count += 1
-                    progress = 95 + int(completed_count / len(self.highlights) * 4)
-                    self._report_progress(
-                        "영상 생성",
-                        progress,
-                        f"클립 {completed_count}/{len(self.highlights)} 완료"
+                    final_shorts = self._merge_clips_to_final_shorts(
+                        successful_clips,
+                        self.video_path
                     )
 
-                except Exception as e:
-                    logger.error(f"Clip {clip_index+1} processing failed: {e}")
-                    self.processing_errors.append(f"Clip {clip_index+1} generation failed")
+                    # Update first highlight to point to merged video
+                    self.highlights[0].video_path = str(final_shorts)
 
-        logger.info(f"Parallel clip generation complete: {completed_count}/{len(self.highlights)} successful")
+                    # Clear other highlights' video paths (they're now part of merged video)
+                    for i in range(1, len(self.highlights)):
+                        self.highlights[i].video_path = None
+
+                    logger.info(f"✅ Final shorts video created: {final_shorts}")
+
+                except Exception as e:
+                    logger.error(f"Failed to merge clips: {e}", exc_info=True)
+                    self.processing_errors.append(f"Video merge failed: {str(e)}")
+                    # Keep individual clip paths if merge fails
+                    logger.warning("Merge failed, keeping individual clip paths")
+
+        except Exception as e:
+            logger.error(f"Parallel processing failed with exception: {e}", exc_info=True)
+            logger.info("Falling back to sequential processing")
+            self._generate_final_clips_sequential()
 
     def _generate_final_clips_sequential(self) -> None:
         """Generate final clips sequentially (original implementation)."""
@@ -1119,14 +1208,21 @@ def _process_single_clip_worker(
         sys.path.insert(0, str(app_dir))
 
     try:
+        import torch
         from src.scene.scene_classifier import SceneClassifier
         from src.pipeline.reframing_pipeline import ReframingPipeline
         from src.core.video_editor import VideoEditor
         from src.utils.config import AppConfig
         from src.pipeline.pipeline_config import SceneClassificationConfig, ReframingConfig
 
+        # Force CPU mode for cross-platform stability and true parallel processing
+        # This ensures workers don't compete for GPU resources and works on Windows/Mac/Linux
+        import os
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''  # Disable CUDA
+        os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'  # Disable MPS
+
         logger = logging.getLogger(__name__)
-        logger.info(f"[Worker {clip_index}] Starting clip processing in subprocess")
+        logger.info(f"[Worker {clip_index}] Starting clip processing in subprocess (CPU mode)")
 
         # Reconstruct configuration from dict
         temp_dir = Path(config_dict['temp_dir'])

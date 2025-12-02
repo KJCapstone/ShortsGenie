@@ -170,7 +170,7 @@ class PipelineConfig:
 
     # Parallel processing
     enable_parallel_clip_generation: bool = True  # Enable parallel clip processing
-    max_parallel_workers: int = 2  # Max workers for parallel clip generation (GPU constrained)
+    max_parallel_workers: int = 4  # Max workers for parallel clip generation (CPU-based, adjust based on CPU cores)
 
     # Output
     output_dir: Path = field(default_factory=lambda: Path("output"))

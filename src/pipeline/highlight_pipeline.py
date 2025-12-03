@@ -1048,61 +1048,126 @@ class HighlightPipeline:
         # Step 2: Extract audio from original video matching highlight timestamps
         # For simplicity, we'll extract audio from the same time ranges and concat
         temp_audios = []
+        audio_extraction_failed = False
+
         for i, highlight in enumerate(self.highlights[:len(clip_paths)]):
             audio_file = self.config.temp_dir / f"audio_{i}.aac"
+
+            # Round timestamps to avoid floating point precision issues
+            start_time = round(highlight.start_time, 2)
+            duration = round(highlight.end_time - highlight.start_time, 2)
+
+            # Try method 1: Copy audio codec (fastest)
             extract_audio_cmd = [
                 'ffmpeg', '-y',
                 '-i', str(original_video_path),
-                '-ss', str(highlight.start_time),
-                '-t', str(highlight.end_time - highlight.start_time),
+                '-ss', str(start_time),
+                '-t', str(duration),
                 '-vn',  # No video
                 '-acodec', 'copy',
                 str(audio_file)
             ]
-            subprocess.run(extract_audio_cmd, check=True, capture_output=True)
-            temp_audios.append(audio_file)
 
-        # Step 3: Concat audio files
-        audio_concat_file = self.config.temp_dir / "audio_concat_list.txt"
-        with open(audio_concat_file, 'w', encoding='utf-8') as f:
-            for audio in temp_audios:
-                f.write(f"file '{audio.absolute()}'\n")
+            try:
+                result = subprocess.run(extract_audio_cmd, check=True, capture_output=True, text=True)
+                temp_audios.append(audio_file)
+                logger.info(f"Extracted audio {i+1}/{len(clip_paths)} (codec copy)")
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"Audio extraction (copy) failed for clip {i+1}: {e.returncode}")
 
-        temp_audio = self.config.temp_dir / "merged_audio.aac"
-        audio_concat_cmd = [
-            'ffmpeg', '-y',
-            '-f', 'concat',
-            '-safe', '0',
-            '-i', str(audio_concat_file),
-            '-c', 'copy',
-            str(temp_audio)
-        ]
-        subprocess.run(audio_concat_cmd, check=True, capture_output=True)
+                # Try method 2: Re-encode to AAC
+                extract_audio_cmd_reencode = [
+                    'ffmpeg', '-y',
+                    '-i', str(original_video_path),
+                    '-ss', str(start_time),
+                    '-t', str(duration),
+                    '-vn',
+                    '-c:a', 'aac',
+                    '-b:a', '128k',
+                    str(audio_file)
+                ]
 
-        # Step 4: Combine video + audio with H.264 compression
+                try:
+                    subprocess.run(extract_audio_cmd_reencode, check=True, capture_output=True, text=True)
+                    temp_audios.append(audio_file)
+                    logger.info(f"Extracted audio {i+1}/{len(clip_paths)} (re-encoded)")
+                except subprocess.CalledProcessError as e2:
+                    logger.error(f"Audio extraction (re-encode) also failed for clip {i+1}: {e2.returncode}")
+                    logger.error(f"FFmpeg stderr: {e2.stderr}")
+                    audio_extraction_failed = True
+                    break  # Stop trying if audio extraction fails
+
+        # Step 3: Decide whether to merge with or without audio
         output_path = self.config.output_dir / "final_shorts.mp4"
-        combine_cmd = [
-            'ffmpeg', '-y',
-            '-i', str(temp_video),
-            '-i', str(temp_audio),
-            '-c:v', 'libx264',      # H.264 codec for better compression
-            '-preset', 'medium',     # Encoding speed (faster, fast, medium, slow, slower)
-            '-crf', '28',            # Quality (18-28 recommended, higher=smaller file)
-            '-maxrate', '3M',        # Max bitrate 3 Mbps (good for shorts)
-            '-bufsize', '6M',        # Buffer size
-            '-pix_fmt', 'yuv420p',   # Pixel format for compatibility
-            '-c:a', 'aac',           # AAC audio codec
-            '-b:a', '128k',          # Audio bitrate
-            '-shortest',             # Match shortest stream
-            str(output_path)
-        ]
 
-        logger.info("Combining video and audio...")
-        subprocess.run(combine_cmd, check=True, capture_output=True)
+        if not audio_extraction_failed and temp_audios:
+            # Audio extraction succeeded - merge with audio
+            logger.info(f"Merging video with audio ({len(temp_audios)} audio segments)")
+
+            # Concat audio files
+            audio_concat_file = self.config.temp_dir / "audio_concat_list.txt"
+            with open(audio_concat_file, 'w', encoding='utf-8') as f:
+                for audio in temp_audios:
+                    f.write(f"file '{audio.absolute()}'\n")
+
+            temp_audio = self.config.temp_dir / "merged_audio.aac"
+            audio_concat_cmd = [
+                'ffmpeg', '-y',
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', str(audio_concat_file),
+                '-c', 'copy',
+                str(temp_audio)
+            ]
+            subprocess.run(audio_concat_cmd, check=True, capture_output=True)
+
+            # Combine video + audio with H.264 compression
+            combine_cmd = [
+                'ffmpeg', '-y',
+                '-i', str(temp_video),
+                '-i', str(temp_audio),
+                '-c:v', 'libx264',      # H.264 codec for better compression
+                '-preset', 'medium',     # Encoding speed (faster, fast, medium, slow, slower)
+                '-crf', '28',            # Quality (18-28 recommended, higher=smaller file)
+                '-maxrate', '3M',        # Max bitrate 3 Mbps (good for shorts)
+                '-bufsize', '6M',        # Buffer size
+                '-pix_fmt', 'yuv420p',   # Pixel format for compatibility
+                '-c:a', 'aac',           # AAC audio codec
+                '-b:a', '128k',          # Audio bitrate
+                '-shortest',             # Match shortest stream
+                str(output_path)
+            ]
+
+            logger.info("Combining video and audio...")
+            subprocess.run(combine_cmd, check=True, capture_output=True)
+
+            # Cleanup temp audio files
+            temp_audio.unlink(missing_ok=True)
+            for audio in temp_audios:
+                audio.unlink(missing_ok=True)
+        else:
+            # Audio extraction failed - merge video only (no audio)
+            logger.warning("⚠️  Audio extraction failed - creating final video WITHOUT audio")
+
+            # Just copy/re-encode the concatenated video
+            no_audio_cmd = [
+                'ffmpeg', '-y',
+                '-i', str(temp_video),
+                '-c:v', 'libx264',
+                '-preset', 'medium',
+                '-crf', '28',
+                '-maxrate', '3M',
+                '-bufsize', '6M',
+                '-pix_fmt', 'yuv420p',
+                '-an',  # No audio
+                str(output_path)
+            ]
+
+            logger.info("Creating final video without audio...")
+            subprocess.run(no_audio_cmd, check=True, capture_output=True)
 
         # Cleanup temp files
         temp_video.unlink(missing_ok=True)
-        temp_audio.unlink(missing_ok=True)
         for audio in temp_audios:
             audio.unlink(missing_ok=True)
 

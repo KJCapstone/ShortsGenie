@@ -64,7 +64,7 @@ class Cropper:
                 self.output_width,
                 self.output_height,
                 fps_to_use,
-                codec="MJPG"  # Changed from mp4v for Windows compatibility
+                codec="mp4v"
             ) as writer:
                 # Process each frame
                 for frame_idx, frame in enumerate(reader):

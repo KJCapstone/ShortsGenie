@@ -5,10 +5,12 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QGridLayout, QSizePolicy, QPushButton
 )
-from PySide6.QtCore import Qt, Slot, Signal, QUrl  
+from PySide6.QtCore import Qt, Slot, Signal, QUrl
 from PySide6.QtGui import QFont, QPainter, QPen, QColor
-from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput  
-from PySide6.QtMultimediaWidgets import QVideoWidget  
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PySide6.QtMultimediaWidgets import QVideoWidget
+
+from src.gui.highlight_detail_dialog import HighlightDetailDialog  
 
 # Constants for styling and configuration
 HEADER_HEIGHT_MIN = 60
@@ -338,15 +340,23 @@ class SelectPage(QWidget):
     
     @Slot(int, str)
     def _on_card_clicked(self, index: int, video_path: str) -> None:
-        """Handle card click event."""
+        """Handle card click event - show detail dialog with all scenes."""
         print(f"\n{'=' * 60}")
         print(f"카드 클릭됨!")
         print(f"Index: {index}")
         print(f"Video Path: {video_path}")
         print(f"{'=' * 60}\n")
-        
-        # Emit signal to parent (main window can connect to this)
-        self.video_preview_requested.emit(self.highlights, index)
+
+        # Show detail dialog with all highlights
+        dialog = HighlightDetailDialog(self.highlights, self)
+
+        # Connect dialog's preview request to our signal
+        dialog.preview_requested.connect(
+            lambda: self.video_preview_requested.emit(self.highlights, index)
+        )
+
+        # Show the dialog
+        dialog.exec()
 
     @Slot()
     def on_back_button_clicked(self) -> None:

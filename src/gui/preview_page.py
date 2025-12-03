@@ -119,7 +119,12 @@ class VideoListItem(QWidget):
             # Default video icon placeholder
             self.placeholder_label = QLabel()
             self.placeholder_label.setAlignment(Qt.AlignCenter)
-            self.placeholder_label.setFont(QFont("Arial", 24))
+            
+            # [수정] 폰트 기본값 사용
+            icon_font = QFont()
+            icon_font.setPointSize(24)
+            self.placeholder_label.setFont(icon_font)
+            
             self.placeholder_label.setText("🎬")
             self.placeholder_label.setStyleSheet("border: none; background-color: transparent; color: #D0D0D0;")
             
@@ -129,7 +134,14 @@ class VideoListItem(QWidget):
         
         # Title label (below the video/frame)
         self.title_label = QLabel(self.title)
-        self.title_label.setFont(QFont("Arial", 12, QFont.Bold if self.is_selected else QFont.Normal))  # 9 → 12
+        
+        # [수정] 폰트 기본값 사용
+        title_font = QFont()
+        title_font.setPointSize(12)
+        if self.is_selected:
+            title_font.setBold(True)
+        self.title_label.setFont(title_font)
+        
         self.title_label.setStyleSheet("color: #333333; border: none; background-color: transparent;")
         self.title_label.setAlignment(Qt.AlignCenter)
         self.title_label.setWordWrap(True)
@@ -147,7 +159,11 @@ class VideoListItem(QWidget):
         self.is_selected = selected
         
         # 타이틀 레이블 업데이트
-        self.title_label.setFont(QFont("Arial", 12, QFont.Bold if selected else QFont.Normal))  # 9 → 12
+        title_font = QFont()
+        title_font.setPointSize(12)
+        if selected:
+            title_font.setBold(True)
+        self.title_label.setFont(title_font)
         
         if self.video_path:
             # Video exists - update video widget style
@@ -216,12 +232,14 @@ class VideoPreviewPage(QWidget):
         header.setStyleSheet(f"background-color: {HEADER_BG_COLOR};")
 
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(10, 0, 20, 0)
+        layout.setContentsMargins(10, 0, 10, 0) # 좌우 여백 동일하게
 
-        # Back button (left side)
+        # [1] 왼쪽: 뒤로 버튼
         self.back_button = QPushButton("← 뒤로")
         self.back_button.setFixedHeight(35)
-        self.back_button.setStyleSheet("""
+        
+        # [수정] 버튼 스타일 (폰트 통일)
+        button_style = """
             QPushButton {
                 background-color: transparent;
                 color: white;
@@ -229,33 +247,49 @@ class VideoPreviewPage(QWidget):
                 border-radius: 6px;
                 padding: 8px 16px;
                 font-size: 14pt;
-                font-family: Arial;
                 font-weight: bold;
             }
             QPushButton:hover {
                 background-color: rgba(255, 255, 255, 0.1);
             }
-        """)
+        """
+        self.back_button.setStyleSheet(button_style)
         self.back_button.setCursor(Qt.PointingHandCursor)
         self.back_button.clicked.connect(self.on_back_button_clicked)
         layout.addWidget(self.back_button)
 
-        # Spacer
+        # [2] 왼쪽 스페이서
         layout.addStretch()
 
-        # Icon
-        icon_label = QLabel("🎬")
-        icon_label.setFont(QFont("Arial", 20))
-        icon_label.setStyleSheet("border: none; background-color: transparent;")
-
-        # Title
-        title_label = QLabel("Shorts Genie")
-        title_label.setFont(QFont("Arial", 18, QFont.Bold))
+        # [3] 가운데: 제목 (로고 + 텍스트 합침)
+        title_label = QLabel("🎬ShortsGenie")
+        
+        # [수정] 기본 폰트 사용
+        title_font = QFont()
+        title_font.setPointSize(20) # 크기 20
+        title_font.setBold(True)    # 굵게
+        title_label.setFont(title_font)
+        
         title_label.setStyleSheet("color: white; border: none; background-color: transparent;")
+        title_label.setAlignment(Qt.AlignCenter)
 
-        layout.addWidget(icon_label)
         layout.addWidget(title_label)
+
+        # [4] 오른쪽 스페이서
         layout.addStretch()
+        
+        # [5] 오른쪽: 투명한 더미 버튼 (중앙 정렬용)
+        dummy_button = QPushButton("← 뒤로") 
+        dummy_button.setFixedHeight(35)
+        dummy_button.setStyleSheet(button_style) 
+        dummy_button.setFlat(True) 
+        dummy_button.setEnabled(False) 
+        # 글자색 투명하게
+        dummy_button.setStyleSheet(button_style + "QPushButton { color: transparent; }") 
+        
+        # 공간만 차지하도록 설정
+        dummy_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        layout.addWidget(dummy_button)
 
         return header
     
@@ -303,7 +337,13 @@ class VideoPreviewPage(QWidget):
         
         # Title
         title_label = QLabel("⚽ 골 모음 영상")
-        title_label.setFont(QFont("Arial", 16, QFont.Bold))  # 12 → 16
+        
+        # [수정] 폰트 기본값
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        
         title_label.setStyleSheet("color: #333333; border: none; background-color: transparent;")
         
         # Container for video items (no scroll)
@@ -437,7 +477,12 @@ class VideoPreviewPage(QWidget):
 
         # Time label (current time / total time)
         self.time_label = QLabel("00:00 / 00:00")
-        self.time_label.setFont(QFont("Arial", 12))  # 9 → 12
+        
+        # [수정] 폰트 기본값
+        time_font = QFont()
+        time_font.setPointSize(12)
+        self.time_label.setFont(time_font)
+        
         self.time_label.setStyleSheet("color: #666666; border: none; background-color: transparent;")
         self.time_label.setMinimumWidth(80)
         self.time_label.setAlignment(Qt.AlignCenter)
@@ -602,10 +647,12 @@ class VideoPreviewPage(QWidget):
 
     def hideEvent(self, event) -> None:
         """Stop video playback when page is hidden."""
-        # 오른쪽 패널의 영상 재생 중지
         if self.media_player:
+            self.media_player.blockSignals(True) # 아이콘 깜빡임 방지
             self.media_player.stop()
-
+            self.media_player.blockSignals(False)
+        
+        self.play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
         super().hideEvent(event)
 
     @Slot()

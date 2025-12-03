@@ -58,16 +58,7 @@ class HighlightCard(QWidget):
     video_clicked = Signal(int, str)  # (index, video_path)
     
     def __init__(self, index: int, title: str, description: str, video_path: str = None, parent: QWidget = None) -> None:
-        """
-        Initialize a highlight card.
-        
-        Args:
-            index: Highlight number (0, 1, 2, ...)
-            title: Highlight title
-            description: Highlight description
-            video_path: Path to video file (optional)
-            parent: Parent widget
-        """
+        """Initialize a highlight card."""
         super().__init__(parent)
         self.index = index
         self.title = title
@@ -163,20 +154,7 @@ class HighlightCard(QWidget):
             self.video_clicked.emit(self.index, self.video_path)
     
 class SelectPage(QWidget):
-    """
-    Result page widget showing detected highlights in grid layout.
-    
-    This page displays the highlights detected from video analysis:
-    - Grid layout of highlight cards (3 columns, 1 row)
-    - Each card shows thumbnail, title, and description
-    
-    Attributes:
-        highlights (list): List of highlight data dictionaries
-        highlight_cards (list): List of HighlightCard widgets
-
-    Signals:
-        video_preview_requested: Emitted when user clicks a card (highlights_list, selected_index)
-    """
+    """Result page widget showing detected highlights in grid layout."""
     
     # Signal: emitted when video preview is requested
     video_preview_requested = Signal(list, int)  # (highlights, selected_index)
@@ -211,12 +189,14 @@ class SelectPage(QWidget):
         header.setStyleSheet(f"background-color: {HEADER_BG_COLOR};")
 
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(10, 0, 20, 0)
+        layout.setContentsMargins(10, 0, 10, 0) # 좌우 여백 10으로 통일
 
-        # Back button (left side)
+        # [1] 왼쪽: 뒤로 버튼
         self.back_button = QPushButton("← 뒤로")
         self.back_button.setFixedHeight(35)
-        self.back_button.setStyleSheet("""
+        
+        # 버튼 스타일 정의 (재사용을 위해 변수로)
+        button_style = """
             QPushButton {
                 background-color: transparent;
                 color: white;
@@ -224,33 +204,45 @@ class SelectPage(QWidget):
                 border-radius: 6px;
                 padding: 8px 16px;
                 font-size: 14pt;
-                font-family: Arial;
+                font-family: pretendard;
                 font-weight: bold;
             }
             QPushButton:hover {
                 background-color: rgba(255, 255, 255, 0.1);
             }
-        """)
+        """
+        self.back_button.setStyleSheet(button_style)
         self.back_button.setCursor(Qt.PointingHandCursor)
         self.back_button.clicked.connect(self.on_back_button_clicked)
         layout.addWidget(self.back_button)
 
-        # Spacer
+        # [2] 왼쪽 스페이서
         layout.addStretch()
 
-        # Icon
-        icon_label = QLabel("🎬")
-        icon_label.setFont(QFont("Arial", 20))
-        icon_label.setStyleSheet("border: none; background-color: transparent;")
-
-        # Title
-        title_label = QLabel("Shorts Genie")
-        title_label.setFont(QFont("Arial", 18, QFont.Bold))
+        # [3] 가운데: 아이콘 + 제목 (중앙 정렬을 위해 컨테이너 사용 안 함)
+        # 제목
+        title_label = QLabel("🎬ShortsGenie")
+        title_label.setFont(QFont("pretendard", 20, QFont.Bold))
         title_label.setStyleSheet("color: white; border: none; background-color: transparent;")
 
-        layout.addWidget(icon_label)
         layout.addWidget(title_label)
+        
+        # [4] 오른쪽 스페이서
         layout.addStretch()
+
+        # [5] 오른쪽: 투명한 더미 버튼 (제목 중앙 정렬을 위한 핵심!)
+        # 왼쪽 버튼과 완전히 동일한 크기와 스타일을 가지지만, 내용은 없고 클릭 불가능하게 만듭니다.
+        dummy_button = QPushButton("← 뒤로") 
+        dummy_button.setFixedHeight(35)
+        dummy_button.setStyleSheet(button_style) # 스타일 복사
+        dummy_button.setFlat(True) 
+        dummy_button.setEnabled(False) # 클릭 불가
+        # 글자색을 투명하게 해서 안 보이게 만듭니다.
+        dummy_button.setStyleSheet(button_style + "QPushButton { color: transparent; }") 
+        
+        # 공간만 차지하도록 설정
+        dummy_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        layout.addWidget(dummy_button)
 
         return header
     
@@ -306,17 +298,7 @@ class SelectPage(QWidget):
     
     @Slot(list)
     def set_highlights(self, highlights: List[Dict]) -> None:
-        """
-        Set and display the highlights.
-        
-        Args:
-            highlights: List of highlight dictionaries with keys:
-                - title: Highlight title
-                - description: Highlight description
-                - start_time: Start time
-                - end_time: End time
-                - video_path: (optional) Path to video file
-        """
+        """Set and display the highlights."""
         self.highlights = highlights
         self.highlight_cards = []
         
@@ -356,13 +338,7 @@ class SelectPage(QWidget):
     
     @Slot(int, str)
     def _on_card_clicked(self, index: int, video_path: str) -> None:
-        """
-        Handle card click event.
-        
-        Args:
-            index: Index of clicked card
-            video_path: Path to video file
-        """
+        """Handle card click event."""
         print(f"\n{'=' * 60}")
         print(f"카드 클릭됨!")
         print(f"Index: {index}")

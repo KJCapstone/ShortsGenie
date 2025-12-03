@@ -2,12 +2,16 @@
 
 import cv2
 import numpy as np
+import subprocess
+import logging
 from typing import List, Optional
 from pathlib import Path
 
 from src.models.detection_result import ROI
 from src.utils.video_utils import VideoReader, VideoWriter
 from src.utils.config import CropperConfig
+
+logger = logging.getLogger(__name__)
 
 
 class Cropper:
@@ -41,26 +45,29 @@ class Cropper:
         roi_trajectory: List[ROI],
         output_fps: Optional[float] = None
     ):
-        """Crop video according to ROI trajectory.
+        """Crop video according to ROI trajectory with audio preservation.
 
         Args:
-            input_path: Input video path
-            output_path: Output video path
+            input_path: Input video path (with audio)
+            output_path: Output video path (will have audio)
             roi_trajectory: List of ROI objects (one per frame)
             output_fps: Output video fps. If None, uses source video fps.
         """
         print(f"[Cropper] Processing: {input_path} -> {output_path}")
 
-        with VideoReader(input_path) as reader:
-            # Create output directory if needed
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        # Create output directory if needed
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
+        # Step 1: Crop video with OpenCV (no audio)
+        temp_video_path = str(Path(output_path).with_suffix('.temp.mp4'))
+
+        with VideoReader(input_path) as reader:
             # Use specified output_fps or fall back to source fps
             fps_to_use = output_fps if output_fps is not None else reader.fps
 
-            # Create video writer
+            # Create video writer for temp file
             with VideoWriter(
-                output_path,
+                temp_video_path,
                 self.output_width,
                 self.output_height,
                 fps_to_use,
@@ -83,7 +90,92 @@ class Cropper:
                     if (frame_idx + 1) % 100 == 0:
                         print(f"[Cropper] Processed {frame_idx + 1}/{reader.frame_count} frames")
 
-        print(f"[Cropper] ✓ Complete: {output_path}")
+        # Step 2: Add audio from source using FFmpeg
+        print(f"[Cropper] Adding audio from source...")
+        success = self._add_audio_from_source(temp_video_path, output_path, input_path)
+
+        # Cleanup temp file
+        try:
+            Path(temp_video_path).unlink()
+        except Exception as e:
+            logger.warning(f"Failed to delete temp file {temp_video_path}: {e}")
+
+        if success:
+            print(f"[Cropper] ✓ Complete: {output_path}")
+        else:
+            print(f"[Cropper] ⚠ Complete (no audio): {output_path}")
+
+    def _add_audio_from_source(
+        self,
+        video_path: str,
+        output_path: str,
+        source_path: str
+    ) -> bool:
+        """Add audio from source video to cropped video using FFmpeg.
+
+        Args:
+            video_path: Cropped video path (no audio)
+            output_path: Final output path (with audio)
+            source_path: Source video path (with audio)
+
+        Returns:
+            True if audio was successfully added, False otherwise
+        """
+        try:
+            # Method 1: Try to copy audio codec (fastest, works for most formats)
+            cmd_copy = [
+                'ffmpeg', '-y',
+                '-i', video_path,      # Cropped video (no audio)
+                '-i', source_path,     # Original video (with audio)
+                '-map', '0:v:0',       # Use video from first input
+                '-map', '1:a:0',       # Use audio from second input
+                '-c:v', 'copy',        # Copy video (no re-encoding)
+                '-c:a', 'copy',        # Copy audio (no re-encoding)
+                '-shortest',           # Match shortest stream
+                output_path
+            ]
+
+            logger.info(f"[Cropper] Attempting audio merge (codec copy)")
+            result = subprocess.run(cmd_copy, check=True, capture_output=True, text=True)
+            logger.info(f"[Cropper] ✓ Audio added successfully (codec copy)")
+            return True
+
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"[Cropper] Audio merge (codec copy) failed: {e.returncode}")
+
+            # Method 2: Re-encode audio to AAC (more compatible, works with MKV/AVI)
+            try:
+                cmd_reencode = [
+                    'ffmpeg', '-y',
+                    '-i', video_path,
+                    '-i', source_path,
+                    '-map', '0:v:0',
+                    '-map', '1:a:0',
+                    '-c:v', 'copy',
+                    '-c:a', 'aac',         # Re-encode to AAC
+                    '-b:a', '128k',
+                    '-shortest',
+                    output_path
+                ]
+
+                logger.info(f"[Cropper] Attempting audio merge (AAC re-encode)")
+                subprocess.run(cmd_reencode, check=True, capture_output=True, text=True)
+                logger.info(f"[Cropper] ✓ Audio added successfully (AAC re-encode)")
+                return True
+
+            except subprocess.CalledProcessError as e2:
+                logger.error(f"[Cropper] Audio merge (re-encode) also failed: {e2.returncode}")
+                logger.error(f"[Cropper] FFmpeg stderr: {e2.stderr}")
+
+                # Method 3: Fallback - copy video without audio
+                logger.warning(f"[Cropper] Creating output without audio (fallback)")
+                try:
+                    import shutil
+                    shutil.copy2(video_path, output_path)
+                    return False
+                except Exception as e3:
+                    logger.error(f"[Cropper] Even fallback copy failed: {e3}")
+                    raise
 
     def _crop_frame(self, frame: np.ndarray, roi: ROI) -> np.ndarray:
         """Crop a single frame with full vertical height and horizontal tracking.

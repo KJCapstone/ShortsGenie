@@ -12,7 +12,7 @@ from PySide6.QtGui import QFont
 class SceneCard(QFrame):
     """Card widget showing individual scene information."""
 
-    def __init__(self, scene_num: int, title: str, description: str, start_time: float, end_time: float, parent=None):
+    def __init__(self, scene_num: int, title: str, description: str, start_time, end_time, parent=None):
         """Initialize scene card.
 
         Args:
@@ -79,8 +79,15 @@ class SceneCard(QFrame):
         desc_label.setWordWrap(True)
         layout.addWidget(desc_label)
 
-    def _format_time_range(self, start: float, end: float) -> str:
+    def _format_time_range(self, start, end) -> str:
         """Format time range as MM:SS - MM:SS."""
+        # Convert to float if string
+        try:
+            start = float(start) if start else 0.0
+            end = float(end) if end else 0.0
+        except (ValueError, TypeError):
+            return "00:00 - 00:00"
+
         start_min = int(start // 60)
         start_sec = int(start % 60)
         end_min = int(end // 60)

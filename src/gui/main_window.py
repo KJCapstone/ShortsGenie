@@ -24,11 +24,9 @@ WINDOW_INIT_HEIGHT = 600
 class MainWindow(QMainWindow):
     """Main application window managing page navigation."""
     OPTION_MAP = {
-
         "⚽ 골 모음 영상": "골",
         "⚡ 경기 주요 영상": "경기",
         "🎵 밈 영상": "밈"     
-
     }
     
     def __init__(self):
@@ -91,15 +89,7 @@ class MainWindow(QMainWindow):
 
     @Slot(str, str, str, str)
     def show_progress_page(self, file_path: str, option: str, backend: str, groq_api_key: str) -> None:
-        """
-        Switch to editing page and pass data to it.
-
-        Args:
-            file_path: Path to the selected video file
-            option: Selected editing option/condition
-            backend: Transcription backend ("whisper" or "groq")
-            groq_api_key: Groq API key (if backend is "groq")
-        """
+        """Switch to editing page and pass data to it."""
         # Cache for potential back navigation
         self.cached_file_path = file_path
         self.cached_option = option
@@ -120,24 +110,13 @@ class MainWindow(QMainWindow):
 
     @Slot(list, int)
     def show_preview_page(self, highlights, selected_index):
-        """
-        Show preview page with highlights.
-        
-        Args:
-            highlights: List of highlight dictionaries
-            selected_index: Index of initially selected video
-        """
+        """Show preview page with highlights."""
         self.preview_page.load_highlights(highlights, selected_index)
         self.stacked_widget.setCurrentIndex(3)
 
     @Slot(dict)
     def show_output_page(self, video_info: Dict) -> None:
-        """
-        Show output page with selected video info.
-        
-        Args:
-            video_info: Dictionary containing selected video information
-        """
+        """Show output page with selected video info."""
         # 선택된 영상 정보 저장
         self.selected_video_info = video_info
         self.output_page.video_info = video_info
@@ -210,35 +189,28 @@ class MainWindow(QMainWindow):
     def handle_output_page_back(self) -> None:
         """Handle back navigation from output page."""
         # Navigate back to preview page
-        # Video info is already loaded in preview page
         self.stacked_widget.setCurrentIndex(3)
 
     @Slot(str, str, str)
     def handle_export_request(self, save_path: str, filename: str, quality: str) -> None:
-        """
-        Handle export request from output page.
+        """Handle export request from output page."""
+        
+        # [안전장치] 좀비 스레드 방지: 이전 작업이 있으면 확실히 종료
+        if hasattr(self, 'export_worker') and self.export_worker is not None:
+            if self.export_worker.isRunning():
+                print("DEBUG: 이전 작업이 실행 중입니다. 강제 종료합니다.")
+                self.export_worker.cancel()
+                self.export_worker.terminate()
+                self.export_worker.wait()
 
-        Args:
-            save_path: Directory to save output file
-            filename: Output filename (without extension)
-            quality: Quality string (e.g., "1080 p")
-        """
         if not self.selected_video_info:
-            QMessageBox.warning(
-                self,
-                "오류",
-                "선택된 영상이 없습니다."
-            )
+            QMessageBox.warning(self, "오류", "선택된 영상이 없습니다.")
             return
 
         # Get input video path
         input_path = self.selected_video_info.get('video_path')
         if not input_path or not Path(input_path).exists():
-            QMessageBox.warning(
-                self,
-                "오류",
-                "입력 영상 파일을 찾을 수 없습니다."
-            )
+            QMessageBox.warning(self, "오류", "입력 영상 파일을 찾을 수 없습니다.")
             return
 
         # Construct output path
@@ -316,6 +288,10 @@ class MainWindow(QMainWindow):
         self.export_progress_dialog.setWindowModality(Qt.WindowModal)
         self.export_progress_dialog.setMinimumDuration(0)
         self.export_progress_dialog.setValue(0)
+        
+        # [핵심 수정 1] 100%가 되거나 닫힐 때 자동으로 취소/리셋되는 것을 방지
+        self.export_progress_dialog.setAutoClose(False)
+        self.export_progress_dialog.setAutoReset(False)
 
         # Handle cancel button
         self.export_progress_dialog.canceled.connect(self._on_export_cancelled)
@@ -332,6 +308,13 @@ class MainWindow(QMainWindow):
     def _on_export_completed(self, stats: dict) -> None:
         """Handle successful export completion."""
         if hasattr(self, 'export_progress_dialog'):
+            # [핵심 수정 2] 성공해서 닫는 경우, 취소 시그널 연결을 먼저 끊어버립니다.
+            # 이렇게 해야 close() 할 때 _on_export_cancelled가 호출되지 않습니다.
+            try:
+                self.export_progress_dialog.canceled.disconnect(self._on_export_cancelled)
+            except Exception:
+                pass # 연결이 이미 끊겨있으면 무시
+            
             self.export_progress_dialog.close()
 
         output_path = stats.get('output_path', '알 수 없음')
@@ -344,6 +327,11 @@ class MainWindow(QMainWindow):
     def _on_export_failed(self, error: str) -> None:
         """Handle export failure."""
         if hasattr(self, 'export_progress_dialog'):
+            # 실패 시에도 연결을 끊고 닫는 것이 안전함
+            try:
+                self.export_progress_dialog.canceled.disconnect(self._on_export_cancelled)
+            except Exception:
+                pass
             self.export_progress_dialog.close()
 
         QMessageBox.critical(
@@ -355,6 +343,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_export_cancelled(self) -> None:
         """Handle export cancellation."""
+        # 사용자가 진짜로 '취소' 버튼을 눌렀을 때만 실행됩니다.
         if hasattr(self, 'export_worker') and self.export_worker.isRunning():
             self.export_worker.cancel()
             self.export_worker.wait()  # Wait for thread to finish
@@ -366,13 +355,7 @@ class MainWindow(QMainWindow):
             )
 
     def _show_export_completion_dialog(self, output_path: str, processing_time: float) -> None:
-        """
-        Show custom export completion dialog with "메인 페이지로" button.
-
-        Args:
-            output_path: Path to exported video file
-            processing_time: Processing time in seconds
-        """
+        """Show custom export completion dialog with "메인 페이지로" button."""
         dialog = QDialog(self)
         dialog.setWindowTitle("출력 완료")
         dialog.setFixedSize(400, 200)
@@ -451,12 +434,7 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _go_to_main_page_from_dialog(self, dialog: QDialog) -> None:
-        """
-        Navigate to main page and close dialog.
-
-        Args:
-            dialog: The dialog to close
-        """
+        """Navigate to main page and close dialog."""
         dialog.accept()
         self.stacked_widget.setCurrentIndex(0)  # Navigate to MainPage
         
@@ -467,33 +445,17 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
     
-    # --- 폰트 로드 로직 시작 ---
-    
-    # 1. 폰트 파일 경로 찾기
-    # 현재 파일(main_window.py)의 위치: src/gui
-    # 폰트 위치: src/gui/../fonts/NanumSquareR.ttf (즉, src/fonts)
+    # 폰트 로드 로직 (기존과 동일)
     current_dir = Path(__file__).resolve().parent
-    font_path = current_dir.parent / "fonts" / "Pretendard-Bold.ttf" # <-- 파일명 정확히 확인!
+    font_path = current_dir.parent / "fonts" / "Pretendard-Bold.ttf" 
 
-    # 2. 폰트 데이터베이스에 추가
     font_id = QFontDatabase.addApplicationFont(str(font_path))
     
     if font_id != -1:
-        # 폰트가 성공적으로 로드됨
         font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
-        print(f"폰트 로드 성공: {font_family}")
-        
-        # 앱 전체에 적용 (크기 10)
         app.setFont(QFont(font_family, 10))
-        
-        # [추가] 2. 스타일시트로 모든 위젯에 강제 적용 (이게 강력합니다!)
         app.setStyleSheet(f"* {{ font-family: '{font_family}'; }}")
-    else:
-        print(f"폰트 파일을 찾을 수 없습니다: {font_path}")
-        print("기본 폰트로 실행합니다.")
-        
-    # --- 폰트 로드 로직 끝 ---
-
+    
     window = MainWindow()
     window.show()
 

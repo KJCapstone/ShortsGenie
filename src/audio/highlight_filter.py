@@ -11,13 +11,61 @@ from pathlib import Path
 from typing import List, Tuple, Optional
 import time
 
-from .audio_analyzer import (
-    compute_rms_energy,
-    compute_spectral_features,
-    compute_combined_score,
-    merge_segments,
-    frames_to_time_segments
-)
+
+# Helper functions (previously in audio_analyzer.py)
+
+def compute_rms_energy(y: np.ndarray, sr: int, frame_length: int = 2048, hop_length: int = 512):
+    """Compute RMS energy of audio signal."""
+    rms = librosa.feature.rms(y=y, frame_length=frame_length, hop_length=hop_length)[0]
+    times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=hop_length)
+    return rms, times
+
+
+def compute_spectral_features(y: np.ndarray, sr: int, hop_length: int = 512):
+    """Compute spectral features: centroid, rolloff, zero crossing rate."""
+    centroid = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_length)[0]
+    rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr, hop_length=hop_length)[0]
+    zcr = librosa.feature.zero_crossing_rate(y=y, hop_length=hop_length)[0]
+    return centroid, rolloff, zcr
+
+
+def compute_combined_score(rms: np.ndarray, centroid: np.ndarray, rms_weight: float = 0.7, spectral_weight: float = 0.3):
+    """Combine RMS and spectral features into a single score."""
+    # Normalize features
+    rms_norm = (rms - np.min(rms)) / (np.max(rms) - np.min(rms) + 1e-8)
+    centroid_norm = (centroid - np.min(centroid)) / (np.max(centroid) - np.min(centroid) + 1e-8)
+
+    # Combine with weights
+    combined = rms_weight * rms_norm + spectral_weight * centroid_norm
+    return combined
+
+
+def merge_segments(segments: List[Tuple[float, float]], gap: float = 2.0) -> List[Tuple[float, float]]:
+    """Merge segments that are close together."""
+    if not segments:
+        return []
+
+    merged = [segments[0]]
+    for start, end in segments[1:]:
+        last_start, last_end = merged[-1]
+        if start - last_end <= gap:
+            merged[-1] = (last_start, max(last_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def frames_to_time_segments(frames: np.ndarray, sr: int, hop_length: int = 512, segment_duration: float = 5.0) -> List[Tuple[float, float]]:
+    """Convert frame indices to time segments."""
+    times = librosa.frames_to_time(frames, sr=sr, hop_length=hop_length)
+    segments = []
+
+    for t in times:
+        start = max(0, t - segment_duration / 2)
+        end = t + segment_duration / 2
+        segments.append((start, end))
+
+    return segments
 
 
 class AudioHighlightFilter:

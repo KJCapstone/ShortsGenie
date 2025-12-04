@@ -1010,14 +1010,17 @@ class HighlightPipeline:
                 f.write(f"[{start:.2f}s - {end:.2f}s] {text}\n")
 
     def _merge_clips_to_final_shorts(self, clip_paths: List[Path], original_video_path: Path) -> Path:
-        """Merge multiple highlight clips into single shorts video with original audio.
+        """Merge multiple highlight clips into single shorts video.
+
+        NOTE: Individual clips already contain audio (added by Cropper),
+        so we just need to concatenate them.
 
         Args:
-            clip_paths: List of individual vertical clips (no audio)
-            original_video_path: Original video path for audio extraction
+            clip_paths: List of individual vertical clips (WITH audio)
+            original_video_path: Original video path (not used anymore, kept for compatibility)
 
         Returns:
-            Path to final merged shorts video (1-3 minutes) with audio
+            Path to final merged shorts video with audio
         """
         if not clip_paths:
             raise ValueError("No clips to merge")
@@ -1031,83 +1034,35 @@ class HighlightPipeline:
                 # FFmpeg concat requires absolute paths
                 f.write(f"file '{clip.absolute()}'\n")
 
-        # Step 1: Concat video clips (no audio yet)
-        temp_video = self.config.temp_dir / "merged_video_only.mp4"
+        output_path = self.config.output_dir / "final_shorts.mp4"
+
+        # Concatenate clips with audio using concat demuxer
+        # Each clip already has audio from Cropper, so this is much simpler!
         concat_cmd = [
             'ffmpeg', '-y',
             '-f', 'concat',
             '-safe', '0',
             '-i', str(concat_file),
-            '-c', 'copy',  # No re-encoding for speed
-            str(temp_video)
-        ]
-
-        logger.info("Concatenating video clips...")
-        subprocess.run(concat_cmd, check=True, capture_output=True)
-
-        # Step 2: Extract audio from original video matching highlight timestamps
-        # For simplicity, we'll extract audio from the same time ranges and concat
-        temp_audios = []
-        for i, highlight in enumerate(self.highlights[:len(clip_paths)]):
-            audio_file = self.config.temp_dir / f"audio_{i}.aac"
-            extract_audio_cmd = [
-                'ffmpeg', '-y',
-                '-i', str(original_video_path),
-                '-ss', str(highlight.start_time),
-                '-t', str(highlight.end_time - highlight.start_time),
-                '-vn',  # No video
-                '-acodec', 'copy',
-                str(audio_file)
-            ]
-            subprocess.run(extract_audio_cmd, check=True, capture_output=True)
-            temp_audios.append(audio_file)
-
-        # Step 3: Concat audio files
-        audio_concat_file = self.config.temp_dir / "audio_concat_list.txt"
-        with open(audio_concat_file, 'w', encoding='utf-8') as f:
-            for audio in temp_audios:
-                f.write(f"file '{audio.absolute()}'\n")
-
-        temp_audio = self.config.temp_dir / "merged_audio.aac"
-        audio_concat_cmd = [
-            'ffmpeg', '-y',
-            '-f', 'concat',
-            '-safe', '0',
-            '-i', str(audio_concat_file),
-            '-c', 'copy',
-            str(temp_audio)
-        ]
-        subprocess.run(audio_concat_cmd, check=True, capture_output=True)
-
-        # Step 4: Combine video + audio with H.264 compression
-        output_path = self.config.output_dir / "final_shorts.mp4"
-        combine_cmd = [
-            'ffmpeg', '-y',
-            '-i', str(temp_video),
-            '-i', str(temp_audio),
             '-c:v', 'libx264',      # H.264 codec for better compression
-            '-preset', 'medium',     # Encoding speed (faster, fast, medium, slow, slower)
-            '-crf', '28',            # Quality (18-28 recommended, higher=smaller file)
-            '-maxrate', '3M',        # Max bitrate 3 Mbps (good for shorts)
+            '-preset', 'medium',     # Encoding speed
+            '-crf', '28',            # Quality (18-28 recommended)
+            '-maxrate', '3M',        # Max bitrate 3 Mbps
             '-bufsize', '6M',        # Buffer size
             '-pix_fmt', 'yuv420p',   # Pixel format for compatibility
             '-c:a', 'aac',           # AAC audio codec
             '-b:a', '128k',          # Audio bitrate
-            '-shortest',             # Match shortest stream
             str(output_path)
         ]
 
-        logger.info("Combining video and audio...")
-        subprocess.run(combine_cmd, check=True, capture_output=True)
-
-        # Cleanup temp files
-        temp_video.unlink(missing_ok=True)
-        temp_audio.unlink(missing_ok=True)
-        for audio in temp_audios:
-            audio.unlink(missing_ok=True)
-
-        logger.info(f"✅ Final shorts created: {output_path}")
-        return output_path
+        logger.info("Concatenating clips (video + audio)...")
+        try:
+            subprocess.run(concat_cmd, check=True, capture_output=True, text=True)
+            logger.info(f"✅ Final shorts created: {output_path}")
+            return output_path
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Concatenation failed: {e.returncode}")
+            logger.error(f"FFmpeg stderr: {e.stderr}")
+            raise
 
     def _get_video_duration(self, video_path: Path) -> float:
         """Get video duration in seconds using OpenCV.

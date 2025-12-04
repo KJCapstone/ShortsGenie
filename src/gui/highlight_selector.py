@@ -5,10 +5,10 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QGridLayout, QSizePolicy, QPushButton
 )
-from PySide6.QtCore import Qt, Slot, Signal, QUrl  
+from PySide6.QtCore import Qt, Slot, Signal, QUrl
 from PySide6.QtGui import QFont, QPainter, QPen, QColor
-from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput  
-from PySide6.QtMultimediaWidgets import QVideoWidget  
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PySide6.QtMultimediaWidgets import QVideoWidget
 
 # Constants for styling and configuration
 HEADER_HEIGHT_MIN = 60
@@ -293,7 +293,7 @@ class SelectPage(QWidget):
         outer_layout.addStretch()
         outer_layout.addWidget(self.grid_container)
         outer_layout.addStretch()
-        
+
         return outer_frame
     
     @Slot(list)
@@ -314,23 +314,23 @@ class SelectPage(QWidget):
         
             card = HighlightCard(
                 index=0,
-                title=highlight.get('title', '하이라이트 #1'),
+                title='하이라이트',
                 description=highlight.get('description', '하이라이트 설명'),
                 video_path=highlight.get('video_path', None)
             )
 
             # Connect card click signal to result page signal
             card.video_clicked.connect(self._on_card_clicked)
-        
+
             # Add card to center (row 0, column 1 with column span)
             # Use column stretch to center the card
             self.grid_layout.addWidget(card, 0, 1, Qt.AlignCenter)
             self.grid_layout.setColumnStretch(0, 1)  # Left stretch
             self.grid_layout.setColumnStretch(1, 0)  # Center (no stretch)
             self.grid_layout.setColumnStretch(2, 1)  # Right stretch
-        
+
             self.highlight_cards.append(card)
-        
+
         # Log for debugging
         print(f"\n{'=' * 60}")
         print(f"Result Page: Displaying {min(len(highlights), 3)} highlights")
@@ -338,14 +338,14 @@ class SelectPage(QWidget):
     
     @Slot(int, str)
     def _on_card_clicked(self, index: int, video_path: str) -> None:
-        """Handle card click event."""
+        """Handle card click event - go directly to preview page."""
         print(f"\n{'=' * 60}")
-        print(f"카드 클릭됨!")
+        print(f"카드 클릭됨 - 미리보기로 이동")
         print(f"Index: {index}")
         print(f"Video Path: {video_path}")
         print(f"{'=' * 60}\n")
-        
-        # Emit signal to parent (main window can connect to this)
+
+        # Emit signal to navigate to preview page directly
         self.video_preview_requested.emit(self.highlights, index)
 
     @Slot()

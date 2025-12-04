@@ -567,9 +567,10 @@ class VideoPreviewPage(QWidget):
     @Slot()
     def _on_complete_button_clicked(self) -> None:
         """Handle complete button click - emit selected highlight info."""
-        if self.highlights and self.current_index < len(self.highlights):
-            # 1. 현재 선택된 영상 정보 가져오기
-            selected_highlight = self.highlights[self.current_index]
+        if self.highlights and len(self.highlights) > 0:
+            # 1. 항상 첫 번째 하이라이트 사용 (병합된 final_shorts.mp4)
+            # 개별 클립들은 병합 후 삭제되고, highlights[0]만 final_shorts를 가리킴
+            selected_highlight = self.highlights[0]
             # 2. 시그널 발생 - 출력 설정 페이지로 전환 요청
             self.output_settings_requested.emit(selected_highlight)
             
